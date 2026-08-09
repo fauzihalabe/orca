@@ -55,6 +55,12 @@ function createMockStore(overrides: Record<string, unknown> = {}) {
     queueTabInitialCwd: vi.fn(),
     queueTabSetupSplit: vi.fn(),
     queueTabIssueCommandSplit: vi.fn(),
+    activateTab: vi.fn(),
+    activeGroupIdByWorktree: {} as Record<string, string | undefined>,
+    createUnifiedTab: vi.fn(() => ({ id: 'canvas-1', groupId: 'group-1' })),
+    focusGroup: vi.fn(),
+    groupsByWorktree: {} as Record<string, readonly { id: string }[] | undefined>,
+    setActiveTabType: vi.fn(),
     ...overrides
   }
 }
@@ -112,15 +118,21 @@ describe('ensureWorktreeHasInitialTerminal', () => {
     })
   })
 
-  it('creates a single tab without setup split when no setup is provided', () => {
+  it('opens the agent canvas as the initial surface when no setup is provided', () => {
     const store = createMockStore()
 
-    ensureWorktreeHasInitialTerminal(store, 'wt-1')
+    const result = ensureWorktreeHasInitialTerminal(store, 'wt-1')
 
-    expect(store.createTab).toHaveBeenCalledWith('wt-1', undefined, undefined, {
-      pendingActivationSpawn: true
+    expect(result).toBe('canvas-1')
+    expect(store.createTab).not.toHaveBeenCalled()
+    expect(store.createUnifiedTab).toHaveBeenCalledWith('wt-1', 'canvas', {
+      label: 'Canvas',
+      activate: true,
+      recordInteraction: false
     })
-    expect(store.setActiveTab).toHaveBeenCalledWith('tab-1')
+    expect(store.activateTab).toHaveBeenCalledWith('canvas-1')
+    expect(store.setActiveTabType).toHaveBeenCalledWith('canvas')
+    expect(store.focusGroup).toHaveBeenCalledWith('wt-1', 'group-1')
     expect(store.queueTabStartupCommand).not.toHaveBeenCalled()
     expect(store.queueTabSetupSplit).not.toHaveBeenCalled()
   })
@@ -370,7 +382,7 @@ describe('ensureWorktreeHasInitialTerminal', () => {
     })
   })
 
-  it('creates a local initial terminal for explicitly local worktrees while a runtime is focused', () => {
+  it('opens the canvas for explicitly local worktrees while a runtime is focused', () => {
     useAppStore.setState((state) => ({
       settings: state.settings
         ? { ...state.settings, activeRuntimeEnvironmentId: 'web-runtime-1' }
@@ -384,11 +396,14 @@ describe('ensureWorktreeHasInitialTerminal', () => {
 
     const result = ensureWorktreeHasInitialTerminal(store, 'wt-1')
 
-    expect(result).toBe('tab-1')
-    expect(store.createTab).toHaveBeenCalledWith('wt-1', undefined, undefined, {
-      pendingActivationSpawn: true
+    expect(result).toBe('canvas-1')
+    expect(store.createTab).not.toHaveBeenCalled()
+    expect(store.createUnifiedTab).toHaveBeenCalledWith('wt-1', 'canvas', {
+      label: 'Canvas',
+      activate: true,
+      recordInteraction: false
     })
-    expect(store.setActiveTab).toHaveBeenCalledWith('tab-1')
+    expect(store.activateTab).toHaveBeenCalledWith('canvas-1')
   })
 
   it('does not create or queue anything when the worktree already has renderable content', () => {

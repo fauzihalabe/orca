@@ -25,6 +25,8 @@ import { closeTerminalTab } from '../terminal/terminal-tab-actions'
 import { openTabBarEntry, type TabCreateEntryArgs } from '../tab-bar/tab-create-entry-action'
 import { openMobileEmulatorTab } from '@/lib/open-mobile-emulator-tab'
 import { ensureSimulatorTab, getSimulatorTabForWorktree } from '@/lib/ensure-simulator-tab'
+import { openCanvasTab } from '@/lib/open-canvas-tab'
+import { useCrewCanvas } from '../canvas/canvas-store'
 import { buildDuplicatedBrowserTabOptions } from '@/lib/duplicate-browser-tab-options'
 import { getRuntimeEnvironmentIdForWorktree } from '@/lib/worktree-runtime-owner'
 import { browserWorkspaceHasRemoteOwner } from '@/runtime/remote-browser-tab-ownership'
@@ -264,6 +266,10 @@ export function useTabGroupWorkspaceModel({
         closeUnifiedTab(item.id)
       } else if (item.contentType === 'simulator') {
         closeUnifiedTab(item.id)
+      } else if (item.contentType === 'canvas') {
+        // Why: the overlay unmount kills node PTYs via their own cleanups; the persisted graph needs an explicit drop.
+        useCrewCanvas.getState().removeCanvas(item.id)
+        closeUnifiedTab(item.id)
       } else {
         const canCloseTab = closeEditorIfUnreferenced(item.entityId, item.id)
         if (!canCloseTab) {
@@ -325,6 +331,10 @@ export function useTabGroupWorkspaceModel({
         } else if (item.contentType === 'terminal') {
           closeTab(item.entityId)
         } else if (item.contentType === 'simulator') {
+          closeUnifiedTab(item.id)
+        } else if (item.contentType === 'canvas') {
+          // Why: see closeItem — drop the persisted graph; node PTYs die with the overlay unmount.
+          useCrewCanvas.getState().removeCanvas(item.id)
           closeUnifiedTab(item.id)
         } else {
           const canCloseTab = closeEditorIfUnreferenced(item.entityId, item.id)
@@ -408,6 +418,9 @@ export function useTabGroupWorkspaceModel({
       if (item.contentType === 'simulator') {
         setActiveTabType('simulator')
         // simulator has no editor file entity
+      } else if (item.contentType === 'canvas') {
+        setActiveTabType('canvas')
+        // canvas graphs live in the crew canvas store — no editor file entity
       } else {
         setActiveFile(item.entityId)
         setActiveTabType('editor')
@@ -600,6 +613,9 @@ export function useTabGroupWorkspaceModel({
             })
           }
         : undefined,
+      newCanvasTab: () => {
+        openCanvasTab(worktreeId, { targetGroupId: groupId })
+      },
       openEntry: async (args: TabCreateEntryArgs) => {
         await openTabBarEntry(args)
       },

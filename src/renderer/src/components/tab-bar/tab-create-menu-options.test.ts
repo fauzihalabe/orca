@@ -18,7 +18,14 @@ describe('tab create menu options', () => {
     hasNewMarkdown: true,
     hasOpenMarkdown: true,
     hasSimulator: true,
-    simulatorIsGoTo: false
+    simulatorIsGoTo: false,
+    hasCanvas: true
+  })
+
+  it('matches canvas aliases to the canvas menu action', () => {
+    expect(
+      findMatchingTabCreateMenuOptions('new canvas', defaultOptions).map((option) => option.kind)
+    ).toEqual(['new-canvas'])
   })
 
   it('matches mobile emulator aliases to the simulator menu action', () => {
@@ -36,7 +43,8 @@ describe('tab create menu options', () => {
       hasNewMarkdown: true,
       hasOpenMarkdown: false,
       hasSimulator: true,
-      simulatorIsGoTo: true
+      simulatorIsGoTo: true,
+      hasCanvas: false
     })
 
     expect(
@@ -61,6 +69,7 @@ describe('tab create menu options', () => {
       hasOpenMarkdown: false,
       hasSimulator: false,
       simulatorIsGoTo: false,
+      hasCanvas: false,
       windowsShellEntries: [
         { label: 'PowerShell', shell: 'powershell.exe' },
         { label: 'CMD Prompt', shell: 'cmd.exe' }

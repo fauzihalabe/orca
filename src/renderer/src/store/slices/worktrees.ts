@@ -437,7 +437,12 @@ function areDetectedWorktreeResultsEqual(
 }
 
 function toVisibleTabType(contentType: string): WorkspaceVisibleTabType {
-  if (contentType === 'browser' || contentType === 'terminal' || contentType === 'simulator') {
+  if (
+    contentType === 'browser' ||
+    contentType === 'terminal' ||
+    contentType === 'simulator' ||
+    contentType === 'canvas'
+  ) {
     return contentType
   }
   return 'editor'

@@ -178,6 +178,7 @@ export const SettingsUpdate = z
 
 const TopLevelViewSchema = z.enum([
   'terminal',
+  'canvas',
   'settings',
   'tasks',
   'activity',
@@ -313,6 +314,4 @@ export const UiUpdate = z
   .strict()
   .default({})
   .transform(omitUndefinedValues)
-
-// The key/value parity assertions over this live in ui-state-schema-parity-checks.ts.
 export type UiUpdateFieldsSchema = typeof UiUpdateFields

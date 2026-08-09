@@ -55,6 +55,7 @@ import { initialAgentTabViewModeProps } from './native-chat-initial-view-mode'
 import { getConnectionId } from '@/lib/connection-context'
 import { isDetachedHeadWorkspace } from '@/components/sidebar/visible-worktrees'
 import { isNativeChatTranscriptLocalReadable } from '@/lib/native-chat-transcript-readability'
+import { openCanvasTabIn, type CanvasTabOpenerStore } from './open-canvas-tab'
 import { seedNativeChatAppliedSessionOptions } from '@/components/native-chat/native-chat-session-option-cache'
 import type { SessionOptionValue } from '../../../shared/native-chat-session-options'
 import type { ExecutionHostId } from '../../../shared/execution-host'
@@ -120,56 +121,60 @@ function getSetupRunnerCommandPlatformForLaunch(setup: WorktreeSetupLaunch): 'wi
   )
 }
 
-type WorktreeActivationStore = Partial<WorktreeRuntimeOwnerState> & {
-  tabsByWorktree: Record<string, { id: string }[]>
-  defaultTerminalTabsAppliedByWorktreeId: Record<string, true>
-  createTab: (
-    worktreeId: string,
-    targetGroupId?: string,
-    shellOverride?: string,
-    options?: {
-      pendingActivationSpawn?: boolean
-      launchAgent?: TuiAgent
-      recordInteraction?: boolean
-      viewMode?: Tab['viewMode']
-      activate?: boolean
-    }
-  ) => { id: string }
-  setActiveTab: (tabId: string) => void
-  setTabCustomTitle: (
-    tabId: string,
-    title: string | null,
-    opts?: { recordInteraction?: boolean }
-  ) => void
-  setTabColor: (tabId: string, color: string | null) => void
-  markDefaultTerminalTabsApplied: (worktreeId: string) => void
-  reconcileWorktreeTabModel: (worktreeId: string) => { renderableTabCount: number }
-  queueTabStartupCommand: (
-    tabId: string,
-    startup: {
-      command: string
-      env?: Record<string, string>
-      launchConfig?: SleepingAgentLaunchConfig
-      resumeProviderSession?: AgentProviderSessionMetadata
-      launchToken?: string
-      launchAgent?: TuiAgent
-      draftPrompt?: string
-      initialAgentStatus?: { agent: TuiAgent; prompt: string }
-      showSessionRestoredBanner?: boolean
-      telemetry?: AgentStartedTelemetry
-    }
-  ) => void
-  queueTabSetupSplit: (
-    tabId: string,
-    startup: { command: string; env?: Record<string, string>; direction: SetupSplitDirection }
-  ) => void
-  queueTabIssueCommandSplit: (
-    tabId: string,
-    startup: { command: string; env?: Record<string, string> }
-  ) => void
-  queueTabInitialCwd: (tabId: string, cwd: string) => void
-  settings?: Pick<GlobalSettings, 'experimentalNativeChat' | 'openAgentTabsInChatByDefault'> | null
-}
+type WorktreeActivationStore = Partial<WorktreeRuntimeOwnerState> &
+  CanvasTabOpenerStore & {
+    tabsByWorktree: Record<string, { id: string }[]>
+    defaultTerminalTabsAppliedByWorktreeId: Record<string, true>
+    createTab: (
+      worktreeId: string,
+      targetGroupId?: string,
+      shellOverride?: string,
+      options?: {
+        pendingActivationSpawn?: boolean
+        launchAgent?: TuiAgent
+        recordInteraction?: boolean
+        viewMode?: Tab['viewMode']
+        activate?: boolean
+      }
+    ) => { id: string }
+    setActiveTab: (tabId: string) => void
+    setTabCustomTitle: (
+      tabId: string,
+      title: string | null,
+      opts?: { recordInteraction?: boolean }
+    ) => void
+    setTabColor: (tabId: string, color: string | null) => void
+    markDefaultTerminalTabsApplied: (worktreeId: string) => void
+    reconcileWorktreeTabModel: (worktreeId: string) => { renderableTabCount: number }
+    queueTabStartupCommand: (
+      tabId: string,
+      startup: {
+        command: string
+        env?: Record<string, string>
+        launchConfig?: SleepingAgentLaunchConfig
+        resumeProviderSession?: AgentProviderSessionMetadata
+        launchToken?: string
+        launchAgent?: TuiAgent
+        draftPrompt?: string
+        initialAgentStatus?: { agent: TuiAgent; prompt: string }
+        showSessionRestoredBanner?: boolean
+        telemetry?: AgentStartedTelemetry
+      }
+    ) => void
+    queueTabSetupSplit: (
+      tabId: string,
+      startup: { command: string; env?: Record<string, string>; direction: SetupSplitDirection }
+    ) => void
+    queueTabIssueCommandSplit: (
+      tabId: string,
+      startup: { command: string; env?: Record<string, string> }
+    ) => void
+    queueTabInitialCwd: (tabId: string, cwd: string) => void
+    settings?: Pick<
+      GlobalSettings,
+      'experimentalNativeChat' | 'openAgentTabsInChatByDefault'
+    > | null
+  }
 
 /**
  * Shared activation sequence used by the worktree palette and add-repo/worktree dialogs.
@@ -287,7 +292,7 @@ export function activateAndRevealWorktree(
     return false
   }
   const hasActivationWork = Boolean(
-    opts?.startup || opts?.setup || opts?.defaultTabs || opts?.issueCommand
+    opts?.startup || opts?.setup || opts?.defaultTabs || opts?.issueCommand || opts?.initialCwd
   )
   // Why: a plain reselect should still reveal the sidebar row but must not restamp focus recency or wake persistence.
   const isPlainAlreadyActiveTerminal =
@@ -339,7 +344,9 @@ export function activateAndRevealWorktree(
     opts?.startup,
     opts?.setup,
     opts?.issueCommand,
-    opts?.defaultTabs
+    opts?.defaultTabs,
+    // Why: initialCwd is consumed by a terminal pane — it must not land on a canvas tab.
+    opts?.initialCwd ? { needsTerminalSurface: true } : undefined
   )
   if (primaryTabId && opts?.initialCwd) {
     useAppStore.getState().queueTabInitialCwd(primaryTabId, opts.initialCwd)
@@ -432,7 +439,7 @@ export function ensureWorktreeHasInitialTerminal(
   setup?: WorktreeSetupLaunch,
   issueCommand?: IssueCommandLaunch,
   defaultTabs?: WorktreeDefaultTabsLaunch,
-  opts?: { activateCreatedTabs?: boolean }
+  opts?: { activateCreatedTabs?: boolean; needsTerminalSurface?: boolean }
 ): string | null {
   const { renderableTabCount } = store.reconcileWorktreeTabModel(worktreeId)
   // Why: creating a terminal just because the legacy terminal slice is empty gives editor/browser-only worktrees an unexpected extra tab.
@@ -509,6 +516,17 @@ export function ensureWorktreeHasInitialTerminal(
       return existingTerminalTabId
     }
     return null
+  }
+
+  // Why: canvas-first workspaces — a plain activation (no startup/setup/issue/defaultTabs
+  // payloads needing a real shell) opens the agent canvas as the initial surface instead
+  // of an idle terminal. Terminals are still created on demand from the "+" menu or as
+  // canvas terminal nodes.
+  if (!startup && !setup && !issueCommand && !defaultTabs && !opts?.needsTerminalSurface) {
+    return openCanvasTabIn(store, worktreeId, {
+      activate: opts?.activateCreatedTabs !== false,
+      recordInteraction: false
+    })
   }
 
   const templatedTabId = applyDefaultTerminalTabs(

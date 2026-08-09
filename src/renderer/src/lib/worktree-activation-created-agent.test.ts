@@ -77,11 +77,11 @@ describe('activateAndRevealWorktree', () => {
 
     const result = activateAndRevealWorktree(worktree.id)
     const state = useAppStore.getState()
-    const reopenedTab = state.tabsByWorktree[worktree.id]?.[0]
+    const reopenedTab = state.unifiedTabsByWorktree[worktree.id]?.[0]
 
-    // A focusable surface still appears — it is just a plain shell, with no queued agent launch.
+    // A focusable surface still appears — the agent canvas, with no queued agent launch.
     expect(result).toEqual({ primaryTabId: reopenedTab?.id })
-    expect(reopenedTab).toBeDefined()
+    expect(reopenedTab?.contentType).toBe('canvas')
     expect(state.pendingStartupByTabId[reopenedTab!.id]).toBeUndefined()
     expect(revealWorktreeInSidebar).toHaveBeenCalledWith(worktree.id)
   })
@@ -96,7 +96,14 @@ describe('activateAndRevealWorktree', () => {
       // Return to zero tabs, the state that used to re-arm the relaunch. Sets state
       // directly rather than via closeTab — the sleeping-record purge is covered in
       // worktree-reactivation-tab-forkbomb.test.ts.
-      useAppStore.setState({ tabsByWorktree: {}, activeTabIdByWorktree: {} })
+      useAppStore.setState({
+        tabsByWorktree: {},
+        activeTabIdByWorktree: {},
+        unifiedTabsByWorktree: {},
+        groupsByWorktree: {},
+        activeGroupIdByWorktree: {},
+        layoutByWorktree: {}
+      })
     }
   })
 

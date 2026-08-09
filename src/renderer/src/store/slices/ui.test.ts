@@ -776,7 +776,7 @@ describe('createUISlice hydratePersistedUI', () => {
     expect(store.getState().activeView).toBe('tasks')
   })
 
-  it('falls back to terminal when persisted active view is missing (older data)', () => {
+  it('falls back to canvas when persisted active view is missing (older data)', () => {
     const store = createUIStore()
     store.setState({ activeView: 'tasks' })
 
@@ -788,7 +788,7 @@ describe('createUISlice hydratePersistedUI', () => {
       'startup'
     )
 
-    expect(store.getState().activeView).toBe('terminal')
+    expect(store.getState().activeView).toBe('canvas')
   })
 
   it('falls back to terminal when the persisted active view is not a known view', () => {
@@ -801,7 +801,7 @@ describe('createUISlice hydratePersistedUI', () => {
       'startup'
     )
 
-    expect(store.getState().activeView).toBe('terminal')
+    expect(store.getState().activeView).toBe('canvas')
   })
 
   it('drops a persisted activity view when experimental activity is disabled', () => {
@@ -812,7 +812,7 @@ describe('createUISlice hydratePersistedUI', () => {
 
     store.getState().hydratePersistedUI(makePersistedUI({ activeView: 'activity' }), 'startup')
 
-    expect(store.getState().activeView).toBe('terminal')
+    expect(store.getState().activeView).toBe('canvas')
   })
 
   it('restores a persisted activity view when experimental activity is enabled', () => {

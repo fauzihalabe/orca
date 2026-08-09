@@ -1,5 +1,6 @@
 /* eslint-disable max-lines -- main-process entry point; owns app lifecycle, service wiring, window creation, and hook/daemon startup with no cleaner split seam. */
 import { existsSync, statSync } from 'node:fs'
+import { startCrewBridge } from './crew-bridge'
 import { isAbsolute, join } from 'node:path'
 import os from 'node:os'
 import { app, BrowserWindow, dialog, ipcMain, nativeTheme, powerMonitor, type Tray } from 'electron'
@@ -1411,6 +1412,7 @@ function openMainWindow(): BrowserWindow {
       ? { marketplace: pluginMarketplaceService, installer: pluginMarketplaceInstaller }
       : undefined
   )
+  startCrewBridge(() => mainWindow)
   automations.setWebContents(window.webContents)
   automations.start()
   attachMainWindowServices(

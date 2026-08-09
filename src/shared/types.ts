@@ -829,8 +829,9 @@ export type TabContentType =
   | 'check-details'
   | 'browser'
   | 'simulator'
+  | 'canvas'
 
-export type WorkspaceVisibleTabType = 'terminal' | 'editor' | 'browser' | 'simulator'
+export type WorkspaceVisibleTabType = 'terminal' | 'editor' | 'browser' | 'simulator' | 'canvas'
 export type CtrlTabOrderMode = 'mru' | 'sequential'
 
 export type Tab = {
@@ -3371,6 +3372,7 @@ export type ManualRepoOrderEntry = {
 /** The active top-level section shown in the main content area. */
 export type TopLevelView =
   | 'terminal'
+  | 'canvas'
   | 'settings'
   | 'tasks'
   | 'activity'

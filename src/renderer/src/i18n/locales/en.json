@@ -542,6 +542,11 @@
               "bf4f2a8a72": "Could not start the emulator. Check iOS or Android emulator setup and try another device."
             }
           }
+        },
+        "canvas": {
+          "tab": {
+            "canvasLabel": "Canvas"
+          }
         }
       },
       "orchestration": {
@@ -3087,7 +3092,8 @@
             "2148f65e04": "PowerShell",
             "ab589350e5": "Could not build launch command for {{value0}}.",
             "7a9b4af2af": "Scroll tabs left",
-            "232e075b07": "Scroll tabs right"
+            "232e075b07": "Scroll tabs right",
+            "newCanvas": "New Canvas"
           },
           "TabBarCreateEntry": {
             "d62d63b807": "Create file",
@@ -3163,7 +3169,11 @@
                   "1baeb07c17": "ios simulator",
                   "8a580f88cf": "iphone",
                   "7ecdc5ef08": "ipad",
-                  "14965cc123": "mobile"
+                  "14965cc123": "mobile",
+                  "canvas": "canvas",
+                  "newCanvas": "new canvas",
+                  "agents": "agents",
+                  "graph": "graph"
                 }
               }
             }
@@ -4454,7 +4464,8 @@
           "0ccba862b8": "Open GitHub tasks",
           "fee535205b": "Tasks",
           "d599269755": "Hide from sidebar",
-          "artifacts": "Artifacts"
+          "artifacts": "Artifacts",
+          "canvas": "Canvas"
         },
         "SidebarRepositoryFilterSection": {
           "d3a9c4cea1": "Clear",
@@ -14978,6 +14989,90 @@
         "actions": "Artifact actions",
         "ArtifactCollection": {
           "loadMore": "Load more"
+        }
+      },
+      "canvas": {
+        "AgentNode": {
+          "noRole": "no role",
+          "renameTitle": "Double-click to rename",
+          "rolePlaceholder": "role (e.g. ACP reviewer)",
+          "roleTitle": "Double-click to set the role",
+          "roleTitleSet": "Role: {{value0}} (double-click to edit)"
+        },
+        "AgentAccountSelect": {
+          "title": "Provider account (Orca native engine — manage in Settings → AI Provider Accounts)",
+          "systemDefault": "system default"
+        },
+        "AgentArgsEditor": {
+          "buttonTitle": "Agent launch args",
+          "heading": "Launch args",
+          "placeholder": "--dangerously-skip-permissions",
+          "note": "Applies on next spawn — the agent restarts with exactly this command.",
+          "buttonTitleSet": "Args: {{value0}}"
+        },
+        "CanvasPage": {
+          "agent": "Agent",
+          "agentHint": "real agent CLI terminal",
+          "browser": "Browser",
+          "browserHint": "embedded chromium (mobile/desktop)",
+          "closeHint": "esc to close",
+          "terminal": "Terminal",
+          "terminalHint": "plain shell PTY",
+          "note": "Note",
+          "noteHint": "sticky shared memory",
+          "todo": "Todo",
+          "todoHint": "living checklist",
+          "timer": "Timer",
+          "timerHint": "countdown",
+          "simulator": "Simulator",
+          "simulatorHint": "iOS device (Orca engine)",
+          "network": "Network",
+          "networkHint": "live traffic of a linked browser"
+        },
+        "BrowserNode": {
+          "urlPlaceholder": "https://…",
+          "reload": "Reload",
+          "toDesktop": "Mobile (iPhone UA) — switch to desktop",
+          "toMobile": "Desktop — switch to mobile",
+          "annotate": "Annotate an element and send it to the connected agent"
+        },
+        "NoteNode": {
+          "title": "note",
+          "placeholder": "write here…"
+        },
+        "TerminalNode": {
+          "title": "terminal"
+        },
+        "TimerNode": {
+          "title": "timer",
+          "pause": "Pause",
+          "start": "Start",
+          "reset": "Reset"
+        },
+        "TodoNode": {
+          "title": "todo",
+          "newItem": "new item…"
+        },
+        "SimulatorNode": {
+          "title": "simulator",
+          "noWorktree": "Add a project to attach the simulator"
+        },
+        "NetworkNode": {
+          "title": "network",
+          "unlinked": "link a browser",
+          "empty": "no traffic yet"
+        },
+        "EdgeStyleSwitcher": {
+          "styleLineit": "Thick spaced dots",
+          "styleFine": "Fine dots",
+          "styleDash": "Dashes"
+        },
+        "AgentLinearLink": {
+          "unlink": "Unlink issue",
+          "link": "Link Linear issue",
+          "search": "Search Linear issues…",
+          "searching": "searching…",
+          "empty": "no issues"
         }
       }
     },

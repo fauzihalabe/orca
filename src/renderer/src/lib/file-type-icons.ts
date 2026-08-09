@@ -22,6 +22,7 @@ import {
   FileType,
   FileVideo,
   Smartphone,
+  Waypoints,
   type LucideIcon
 } from 'lucide-react'
 
@@ -316,6 +317,11 @@ export function getFileTypeIcon(filePath: string | undefined | null): LucideIcon
   // Why: simulator tabs reuse EditorFileTab chrome with a synthetic label path.
   if (lowerName === 'mobile emulator' || lowerName === 'simulator') {
     return Smartphone
+  }
+
+  // Why: canvas tabs reuse EditorFileTab chrome with a synthetic label path.
+  if (lowerName === 'canvas') {
+    return Waypoints
   }
 
   if (lowerName === '.env' || lowerName.startsWith('.env.')) {

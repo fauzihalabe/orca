@@ -1,0 +1,201 @@
+import { create } from 'zustand'
+import { persist } from 'zustand/middleware'
+import { useMemo } from 'react'
+import type { Edge, Node, Viewport } from '@xyflow/react'
+
+// Crew canvas state — one graph PER CANVAS TAB (keyed by tabId, so each worktree
+// tab owns an independent surface). The 'default' key backs the global
+// TopLevelView canvas. Everything the bridge and nodes read flows from here.
+
+export type CrewCanvasNodeData = {
+  kind: 'agent' | 'browser' | 'terminal' | 'simulator' | 'network' | 'note' | 'todo' | 'timer'
+  [key: string]: unknown
+}
+
+export type CrewCanvasNode = Node<CrewCanvasNodeData>
+
+export type CrewEdgeStyle = 'lineit' | 'fine' | 'dash'
+
+export type CrewCanvasGraph = {
+  nodes: CrewCanvasNode[]
+  edges: Edge[]
+  viewport: Viewport
+  edgeStyle: CrewEdgeStyle
+}
+
+const EMPTY_GRAPH: CrewCanvasGraph = {
+  nodes: [],
+  edges: [],
+  viewport: { x: 0, y: 0, zoom: 1 },
+  edgeStyle: 'lineit'
+}
+
+type CrewCanvasState = {
+  canvases: Record<string, CrewCanvasGraph>
+  setGraph: (tabId: string, nodes: CrewCanvasNode[], edges: Edge[]) => void
+  addNode: (tabId: string, node: CrewCanvasNode) => void
+  removeElements: (tabId: string, nodeIds: string[], edgeIds: string[]) => void
+  updateNodeData: (tabId: string, nodeId: string, patch: Record<string, unknown>) => void
+  resizeNode: (tabId: string, nodeId: string, size: { width: number; height: number }) => void
+  setEdgeStyle: (tabId: string, style: CrewEdgeStyle) => void
+  setViewport: (tabId: string, viewport: Viewport) => void
+  removeCanvas: (tabId: string) => void
+}
+
+function patchGraph(
+  canvases: Record<string, CrewCanvasGraph>,
+  tabId: string,
+  patch: Partial<CrewCanvasGraph>
+): Record<string, CrewCanvasGraph> {
+  const current = canvases[tabId] ?? EMPTY_GRAPH
+  return { ...canvases, [tabId]: { ...current, ...patch } }
+}
+
+export const useCrewCanvas = create<CrewCanvasState>()(
+  persist(
+    (set) => ({
+      canvases: {},
+      setGraph: (tabId, nodes, edges) =>
+        set((s) => ({ canvases: patchGraph(s.canvases, tabId, { nodes, edges }) })),
+      addNode: (tabId, node) =>
+        set((s) => {
+          const current = s.canvases[tabId] ?? EMPTY_GRAPH
+          return {
+            canvases: patchGraph(s.canvases, tabId, { nodes: [...current.nodes, node] })
+          }
+        }),
+      removeElements: (tabId, nodeIds, edgeIds) =>
+        set((s) => {
+          const current = s.canvases[tabId] ?? EMPTY_GRAPH
+          return {
+            canvases: patchGraph(s.canvases, tabId, {
+              nodes: current.nodes.filter((n) => !nodeIds.includes(n.id)),
+              edges: current.edges.filter(
+                (e) =>
+                  !edgeIds.includes(e.id) &&
+                  !nodeIds.includes(e.source) &&
+                  !nodeIds.includes(e.target)
+              )
+            })
+          }
+        }),
+      updateNodeData: (tabId, nodeId, patch) =>
+        set((s) => {
+          const current = s.canvases[tabId] ?? EMPTY_GRAPH
+          return {
+            canvases: patchGraph(s.canvases, tabId, {
+              nodes: current.nodes.map((n) =>
+                n.id === nodeId ? { ...n, data: { ...n.data, ...patch } } : n
+              )
+            })
+          }
+        }),
+      resizeNode: (tabId, nodeId, size) =>
+        set((s) => {
+          const current = s.canvases[tabId] ?? EMPTY_GRAPH
+          return {
+            canvases: patchGraph(s.canvases, tabId, {
+              nodes: current.nodes.map((n) => (n.id === nodeId ? { ...n, ...size } : n))
+            })
+          }
+        }),
+      setEdgeStyle: (tabId, edgeStyle) =>
+        set((s) => ({ canvases: patchGraph(s.canvases, tabId, { edgeStyle }) })),
+      setViewport: (tabId, viewport) =>
+        set((s) => ({ canvases: patchGraph(s.canvases, tabId, { viewport }) })),
+      // Why: closing the canvas tab drops its persisted graph; the overlay
+      // unmount kills the nodes' PTYs via their own effect cleanups.
+      removeCanvas: (tabId) =>
+        set((s) => {
+          if (!(tabId in s.canvases)) {
+            return {}
+          }
+          const canvases = { ...s.canvases }
+          delete canvases[tabId]
+          return { canvases }
+        })
+    }),
+    {
+      name: 'crew-canvas',
+      // Migrate the pre-tabs single-graph shape into the 'default' canvas.
+      migrate: (persisted) => {
+        const value = persisted as Record<string, unknown> | undefined
+        if (value && !value.canvases && Array.isArray(value.nodes)) {
+          return {
+            canvases: {
+              default: {
+                nodes: value.nodes ?? [],
+                edges: value.edges ?? [],
+                viewport: value.viewport ?? EMPTY_GRAPH.viewport,
+                edgeStyle: value.edgeStyle ?? 'lineit'
+              }
+            }
+          } as unknown as CrewCanvasState
+        }
+        return persisted as CrewCanvasState
+      },
+      version: 1
+    }
+  )
+)
+
+/** Read one tab's graph (never undefined). */
+export function getCrewGraph(tabId: string): CrewCanvasGraph {
+  return useCrewCanvas.getState().canvases[tabId] ?? EMPTY_GRAPH
+}
+
+/** Every graph across tabs — the bridge/listener aggregate over these. */
+export function allCrewGraphs(): CrewCanvasGraph[] {
+  return Object.values(useCrewCanvas.getState().canvases)
+}
+
+/** A tab-scoped view: the graph plus every action pre-bound to that tab. */
+export type CrewCanvasTabStore = CrewCanvasGraph & {
+  setGraph: (nodes: CrewCanvasNode[], edges: Edge[]) => void
+  addNode: (node: CrewCanvasNode) => void
+  removeElements: (nodeIds: string[], edgeIds: string[]) => void
+  updateNodeData: (nodeId: string, patch: Record<string, unknown>) => void
+  resizeNode: (nodeId: string, size: { width: number; height: number }) => void
+  setEdgeStyle: (style: CrewEdgeStyle) => void
+  setViewport: (viewport: Viewport) => void
+}
+
+function boundActions(tabId: string): Omit<CrewCanvasTabStore, keyof CrewCanvasGraph> {
+  const s = useCrewCanvas.getState()
+  return {
+    setGraph: (nodes, edges) => s.setGraph(tabId, nodes, edges),
+    addNode: (node) => s.addNode(tabId, node),
+    removeElements: (nodeIds, edgeIds) => s.removeElements(tabId, nodeIds, edgeIds),
+    updateNodeData: (nodeId, patch) => s.updateNodeData(tabId, nodeId, patch),
+    resizeNode: (nodeId, size) => s.resizeNode(tabId, nodeId, size),
+    setEdgeStyle: (style) => s.setEdgeStyle(tabId, style),
+    setViewport: (viewport) => s.setViewport(tabId, viewport)
+  }
+}
+
+function tabStoreOf(tabId: string): CrewCanvasTabStore {
+  const g = useCrewCanvas.getState().canvases[tabId] ?? EMPTY_GRAPH
+  return { ...g, ...boundActions(tabId) }
+}
+
+/** Non-reactive tab store (effects, spawns, listeners). */
+export function getCrewCanvas(tabId: string): CrewCanvasTabStore {
+  return tabStoreOf(tabId)
+}
+
+/** Reactive tab store — selector runs over the graph + bound actions. */
+export function useCrewCanvasTab<T>(tabId: string, selector: (s: CrewCanvasTabStore) => T): T {
+  // Why: the store selector must return a referentially stable value (the graph
+  // slice itself); building the tab view INSIDE getSnapshot returns a fresh
+  // object per read and loops useSyncExternalStore forever. Actions are stable
+  // zustand refs, so binding once per tabId is safe; the selector result is
+  // computed locally per render, outside the subscription.
+  const graph = useCrewCanvas((s) => s.canvases[tabId] ?? EMPTY_GRAPH)
+  const actions = useMemo(() => boundActions(tabId), [tabId])
+  return selector({ ...graph, ...actions })
+}
+
+// Debug/e2e handle — lets devtools-driving tests address the store directly.
+if (typeof window !== 'undefined') {
+  ;(window as unknown as { __crewCanvas: typeof useCrewCanvas }).__crewCanvas = useCrewCanvas
+}

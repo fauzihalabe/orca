@@ -6,6 +6,7 @@ import { isClipboardTextByteLengthOverLimit } from '../../../../shared/clipboard
 export type TabCreateMenuOptionKind =
   | 'go-to-simulator'
   | 'new-browser'
+  | 'new-canvas'
   | 'new-markdown'
   | 'new-simulator'
   | 'new-terminal'
@@ -21,6 +22,7 @@ export type TabCreateMenuOption = {
 }
 
 export type TabCreateMenuOptionsContext = {
+  hasCanvas: boolean
   hasNewBrowser: boolean
   hasNewMarkdown: boolean
   hasOpenMarkdown: boolean
@@ -141,6 +143,21 @@ export function buildTabCreateMenuOptions(
         translate('auto.components.tab.bar.tab.create.menu.options.5f17fb9d0c', 'markdown'),
         translate('auto.components.tab.bar.tab.create.menu.options.44caaf7b36', 'md'),
         translate('auto.components.tab.bar.tab.create.menu.options.164c394bab', 'open file')
+      ]
+    })
+  }
+
+  if (context.hasCanvas) {
+    const label = translate('auto.components.tab.bar.TabBar.newCanvas', 'New Canvas')
+    options.push({
+      id: 'new-canvas',
+      kind: 'new-canvas',
+      label,
+      keywords: [
+        translate('auto.components.tab.bar.tab.create.menu.options.canvas', 'canvas'),
+        translate('auto.components.tab.bar.tab.create.menu.options.newCanvas', 'new canvas'),
+        translate('auto.components.tab.bar.tab.create.menu.options.agents', 'agents'),
+        translate('auto.components.tab.bar.tab.create.menu.options.graph', 'graph')
       ]
     })
   }

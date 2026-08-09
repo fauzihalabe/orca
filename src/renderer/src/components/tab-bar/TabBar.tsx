@@ -10,7 +10,8 @@ import {
   Globe,
   Plus,
   Smartphone,
-  TerminalSquare
+  TerminalSquare,
+  Waypoints
 } from 'lucide-react'
 import { toast } from 'sonner'
 import type {
@@ -118,6 +119,7 @@ type TabBarProps = {
   onNewTerminalWithShell?: (shell: string) => void
   onNewBrowserTab: () => void
   onNewSimulatorTab?: () => void
+  onNewCanvasTab?: () => void
   onOpenEntry?: (args: TabCreateEntryArgs) => Promise<void>
   terminalOnly?: boolean
   showAgentLaunchItems?: boolean
@@ -132,6 +134,7 @@ type TabBarProps = {
   activeFileId?: string | null
   activeBrowserTabId?: string | null
   activeSimulatorTabId?: string | null
+  activeCanvasTabId?: string | null
   activeTabType?: WorkspaceVisibleTabType
   onActivateFile?: (fileId: string) => void
   onCloseFile?: (fileId: string) => void
@@ -176,6 +179,13 @@ type TabItem =
       isPinned: boolean
       data: Tab
     }
+  | {
+      type: 'canvas'
+      id: string
+      unifiedTabId: string
+      isPinned: boolean
+      data: Tab
+    }
 
 function getTabDragLabel(item: TabItem, generatedTitlesEnabled: boolean): string {
   if (item.type === 'terminal') {
@@ -186,6 +196,9 @@ function getTabDragLabel(item: TabItem, generatedTitlesEnabled: boolean): string
   }
   if (item.type === 'simulator') {
     return item.data.label || 'Mobile Emulator'
+  }
+  if (item.type === 'canvas') {
+    return item.data.label || 'Canvas'
   }
   return getEditorDisplayLabel(item.data)
 }
@@ -244,6 +257,7 @@ function TabBarInner({
   onNewTerminalWithShell,
   onNewBrowserTab,
   onNewSimulatorTab,
+  onNewCanvasTab,
   onOpenEntry,
   terminalOnly = false,
   showAgentLaunchItems = true,
@@ -258,6 +272,7 @@ function TabBarInner({
   activeFileId,
   activeBrowserTabId,
   activeSimulatorTabId,
+  activeCanvasTabId,
   activeTabType,
   onActivateFile,
   onCloseFile,
@@ -543,10 +558,12 @@ function TabBarInner({
         hasNewMarkdown: !terminalOnly && Boolean(onNewFileTab),
         hasOpenMarkdown: !terminalOnly && Boolean(onOpenFileTab),
         hasSimulator: !terminalOnly && mobileEmulatorEnabled && Boolean(onNewSimulatorTab),
-        simulatorIsGoTo: workspaceHasSimulatorTab
+        simulatorIsGoTo: workspaceHasSimulatorTab,
+        hasCanvas: !terminalOnly && Boolean(onNewCanvasTab)
       }),
     [
       mobileEmulatorEnabled,
+      onNewCanvasTab,
       onNewFileTab,
       onNewSimulatorTab,
       onOpenFileTab,
@@ -586,6 +603,9 @@ function TabBarInner({
       case 'new-simulator':
       case 'go-to-simulator':
         onNewSimulatorTab?.()
+        break
+      case 'new-canvas':
+        onNewCanvasTab?.()
         break
     }
   }
@@ -725,6 +745,16 @@ function TabBarInner({
         </DropdownMenuItem>
       )
     ) : null
+  const newCanvasMenuItem =
+    !terminalOnly && onNewCanvasTab ? (
+      <DropdownMenuItem
+        onSelect={onNewCanvasTab}
+        className="gap-2 rounded-[7px] px-2 py-1.5 text-[12px] leading-5 font-medium"
+      >
+        <Waypoints className="size-4 text-muted-foreground" />
+        {translate('auto.components.tab.bar.TabBar.newCanvas', 'New Canvas')}
+      </DropdownMenuItem>
+    ) : null
   const newMarkdownMenuItem =
     !terminalOnly && onNewFileTab ? (
       <DropdownMenuItem
@@ -764,6 +794,7 @@ function TabBarInner({
         {openMarkdownMenuItem}
         {defaultTerminalMenuItems}
         {newBrowserMenuItem}
+        {newCanvasMenuItem}
         {newSimulatorMenuItem}
         {mobileEmulatorIntroMenuBlock}
       </>
@@ -771,6 +802,7 @@ function TabBarInner({
       <>
         {defaultTerminalMenuItems}
         {newBrowserMenuItem}
+        {newCanvasMenuItem}
         {newMarkdownMenuItem}
         {openMarkdownMenuItem}
         {newSimulatorMenuItem}
@@ -815,6 +847,13 @@ function TabBarInner({
         .map((t) => t.id),
     [unifiedTabs, resolvedGroupId]
   )
+  const canvasTabIds = useMemo(
+    () =>
+      (unifiedTabs ?? [])
+        .filter((t) => t.groupId === resolvedGroupId && t.contentType === 'canvas')
+        .map((t) => t.id),
+    [unifiedTabs, resolvedGroupId]
+  )
 
   // Build the unified ordered list, reconciling stored order with current items
   const orderedItems = useMemo(() => {
@@ -823,7 +862,8 @@ function TabBarInner({
       terminalIds,
       editorFileIds,
       browserTabIds,
-      simulatorTabIds
+      simulatorTabIds,
+      canvasTabIds
     )
     const items: TabItem[] = []
     for (const id of ids) {
@@ -874,6 +914,17 @@ function TabBarInner({
         })
         continue
       }
+      const canvasUnified = unifiedTabByVisibleId.get(id)
+      if (canvasUnified && canvasUnified.contentType === 'canvas') {
+        items.push({
+          type: 'canvas',
+          id,
+          unifiedTabId: canvasUnified.id,
+          isPinned: canvasUnified.isPinned === true,
+          data: canvasUnified
+        })
+        continue
+      }
     }
     return items
   }, [
@@ -882,6 +933,7 @@ function TabBarInner({
     editorFileIds,
     browserTabIds,
     simulatorTabIds,
+    canvasTabIds,
     terminalMap,
     editorMap,
     browserMap,
@@ -916,6 +968,9 @@ function TabBarInner({
       if (item.type === 'simulator') {
         return activeTabType === 'simulator' && item.id === activeSimulatorTabId
       }
+      if (item.type === 'canvas') {
+        return activeTabType === 'canvas' && item.id === activeCanvasTabId
+      }
       return (
         (activeTabType === 'editor' || activeTabType === 'simulator') && activeFileId === item.id
       )
@@ -923,6 +978,7 @@ function TabBarInner({
     return activeItem?.id ?? null
   }, [
     activeBrowserTabId,
+    activeCanvasTabId,
     activeFileId,
     activeSimulatorTabId,
     activeTabId,
@@ -1139,6 +1195,43 @@ function TabBarInner({
                     key={item.id}
                     file={simFile}
                     isActive={activeTabType === 'simulator' && item.id === activeSimulatorTabId}
+                    isPinned={item.isPinned}
+                    hasTabsToRight={index < orderedItems.length - 1}
+                    hasTabsToLeft={index > 0}
+                    tabCount={orderedItems.length}
+                    statusByRelativePath={statusByRelativePath}
+                    onActivate={() => onActivateFile?.(item.id)}
+                    onClose={() => onCloseFile?.(item.id)}
+                    onCloseOthers={() => onCloseOthers(item.id)}
+                    onCloseToRight={() => onCloseToRight(item.id)}
+                    onCloseToLeft={() => onCloseToLeft(item.id)}
+                    onCloseAll={() => onCloseAllFiles?.()}
+                    onMakePermanent={() => {}}
+                    onTogglePin={() => togglePinned(item)}
+                    dragData={dragData}
+                    dropIndicator={dropIndicatorByVisibleId.get(item.id) ?? null}
+                    includeTopTabBorder={includeTopTabBorder}
+                  />
+                )
+              }
+              if (item.type === 'canvas') {
+                const canvasLabel = item.data.label || 'Canvas'
+                const canvasFile: OpenFile & { tabId: string } = {
+                  id: item.id,
+                  tabId: item.id,
+                  filePath: canvasLabel,
+                  relativePath: canvasLabel,
+                  worktreeId,
+                  language: 'canvas',
+                  isPreview: false,
+                  isDirty: false,
+                  mode: 'edit'
+                }
+                return (
+                  <EditorFileTab
+                    key={item.id}
+                    file={canvasFile}
+                    isActive={activeTabType === 'canvas' && item.id === activeCanvasTabId}
                     isPinned={item.isPinned}
                     hasTabsToRight={index < orderedItems.length - 1}
                     hasTabsToLeft={index > 0}

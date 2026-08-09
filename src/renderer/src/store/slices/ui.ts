@@ -506,14 +506,13 @@ function sanitizeHydratedActiveView(
   value: PersistedUIState['activeView'],
   experimentalActivityEnabled: boolean
 ): TopLevelView {
-  // Why: older data (pre-activeView) or a view a different build doesn't have
-  // falls back to terminal rather than rendering nothing.
+  // Crew: o canvas é a home do app — dados velhos ou view desconhecida caem nele.
   if (!isTopLevelView(value)) {
-    return 'terminal'
+    return 'canvas'
   }
   // Why: activity is hidden when its setting is off, so gate only it (mobile/automations stay functional when hidden).
   if (value === 'activity' && !experimentalActivityEnabled) {
-    return 'terminal'
+    return 'canvas'
   }
   return value
 }
@@ -619,6 +618,7 @@ export type UISlice = {
   activeView: TopLevelView
   previousViewBeforeTasks:
     | 'terminal'
+    | 'canvas'
     | 'settings'
     | 'activity'
     | 'automations'
@@ -628,6 +628,7 @@ export type UISlice = {
     | 'mobile'
   previousViewBeforeSettings:
     | 'terminal'
+    | 'canvas'
     | 'tasks'
     | 'activity'
     | 'automations'
@@ -637,6 +638,7 @@ export type UISlice = {
     | 'mobile'
   previousViewBeforeActivity:
     | 'terminal'
+    | 'canvas'
     | 'settings'
     | 'tasks'
     | 'automations'
@@ -646,6 +648,7 @@ export type UISlice = {
     | 'mobile'
   previousViewBeforeAutomations:
     | 'terminal'
+    | 'canvas'
     | 'settings'
     | 'tasks'
     | 'activity'
@@ -655,6 +658,7 @@ export type UISlice = {
     | 'mobile'
   previousViewBeforeSpace:
     | 'terminal'
+    | 'canvas'
     | 'settings'
     | 'tasks'
     | 'activity'
@@ -664,6 +668,7 @@ export type UISlice = {
     | 'mobile'
   previousViewBeforeSkills:
     | 'terminal'
+    | 'canvas'
     | 'settings'
     | 'tasks'
     | 'activity'
@@ -673,6 +678,7 @@ export type UISlice = {
     | 'mobile'
   previousViewBeforeMobile:
     | 'terminal'
+    | 'canvas'
     | 'settings'
     | 'tasks'
     | 'activity'
@@ -680,8 +686,19 @@ export type UISlice = {
     | 'space'
     | 'skills'
     | 'artifacts'
+  previousViewBeforeCanvas:
+    | 'terminal'
+    | 'settings'
+    | 'tasks'
+    | 'activity'
+    | 'automations'
+    | 'space'
+    | 'skills'
+    | 'artifacts'
+    | 'mobile'
   previousViewBeforeArtifacts:
     | 'terminal'
+    | 'canvas'
     | 'settings'
     | 'tasks'
     | 'activity'
@@ -767,6 +784,8 @@ export type UISlice = {
   closeSpacePage: () => void
   openSkillsPage: () => void
   closeSkillsPage: () => void
+  openCanvasPage: () => void
+  closeCanvasPage: () => void
   openArtifactsPage: () => void
   closeArtifactsPage: () => void
   openMobilePage: () => void
@@ -1254,14 +1273,15 @@ export const createUISlice: StateCreator<AppState, [], [], UISlice> = (set, get)
     }),
 
   activeView: 'terminal',
-  previousViewBeforeTasks: 'terminal',
-  previousViewBeforeSettings: 'terminal',
-  previousViewBeforeActivity: 'terminal',
-  previousViewBeforeAutomations: 'terminal',
-  previousViewBeforeSpace: 'terminal',
-  previousViewBeforeSkills: 'terminal',
-  previousViewBeforeMobile: 'terminal',
-  previousViewBeforeArtifacts: 'terminal',
+  previousViewBeforeTasks: 'canvas',
+  previousViewBeforeSettings: 'canvas',
+  previousViewBeforeActivity: 'canvas',
+  previousViewBeforeAutomations: 'canvas',
+  previousViewBeforeSpace: 'canvas',
+  previousViewBeforeSkills: 'canvas',
+  previousViewBeforeMobile: 'canvas',
+  previousViewBeforeCanvas: 'terminal',
+  previousViewBeforeArtifacts: 'canvas',
   setActiveView: (view) => set({ activeView: view }),
   taskPageData: {},
   taskResumeState: undefined,
@@ -1506,6 +1526,16 @@ export const createUISlice: StateCreator<AppState, [], [], UISlice> = (set, get)
   closeSkillsPage: () =>
     set((state) => ({
       activeView: state.previousViewBeforeSkills
+    })),
+  openCanvasPage: () =>
+    set((state) => ({
+      activeView: 'canvas',
+      previousViewBeforeCanvas:
+        state.activeView === 'canvas' ? state.previousViewBeforeCanvas : state.activeView
+    })),
+  closeCanvasPage: () =>
+    set((state) => ({
+      activeView: state.previousViewBeforeCanvas
     })),
   openArtifactsPage: () =>
     set((state) => ({

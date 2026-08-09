@@ -47,6 +47,8 @@ import { hasFeatureInteraction } from '../../../shared/feature-interactions'
 import BrowserPane from './browser-pane/BrowserPane'
 import { RetainedBrowserPaneOverlayLayer } from './browser-pane/BrowserPaneOverlayLayer'
 import EmulatorPaneOverlayLayer from './emulator-pane/EmulatorPaneOverlayLayer'
+import CanvasPaneOverlayLayer from './canvas/CanvasPaneOverlayLayer'
+import { useCrewCanvas } from './canvas/canvas-store'
 import {
   isBrowserAutomationVisible,
   onBrowserAutomationVisibilityChange,
@@ -153,6 +155,7 @@ import {
   isWebRuntimeSessionActive
 } from '@/runtime/web-runtime-session'
 import { openMobileEmulatorTab } from '@/lib/open-mobile-emulator-tab'
+import { openCanvasTab } from '@/lib/open-canvas-tab'
 import { launchAgentInNewTab } from '@/lib/launch-agent-in-new-tab'
 import { resumeSleepingAgentSessionsForWorktree } from '@/lib/resume-sleeping-agent-session'
 import { listBoundAgentTabActions, resolveDefaultAgentForNewTab } from '@/lib/agent-tab-shortcuts'
@@ -1494,9 +1497,11 @@ function Terminal(): React.JSX.Element | null {
     if (!shouldAutoCreateInitialTerminal(renderableTabCount)) {
       return
     }
-    // Why: tag this never-visited-worktree tab so its PTY spawn doesn't count as activity and reshuffle the sidebar (explicit New Tab still bumps).
-    createTab(activeWorktreeId, undefined, undefined, { pendingActivationSpawn: true })
-  }, [workspaceSessionReady, activeWorktreeId, createTab, reconcileWorktreeTabModel])
+    // Why: canvas-first — a never-visited worktree opens on the agent canvas; explicit
+    // New Tab / agent launches still create terminals on demand. recordInteraction stays
+    // off so activation alone doesn't reshuffle the Recent sort.
+    openCanvasTab(activeWorktreeId, { recordInteraction: false })
+  }, [workspaceSessionReady, activeWorktreeId, reconcileWorktreeTabModel])
 
   const startupResumeWorktreeIdsRef = useRef(new Set<string>())
   useEffect(() => {
@@ -1609,6 +1614,13 @@ function Terminal(): React.JSX.Element | null {
       placement: 'rightSplit',
       targetGroupId: targetGroupId ?? undefined
     })
+  }, [activeWorktreeId])
+
+  const handleNewCanvasTab = useCallback(() => {
+    if (!activeWorktreeId) {
+      return
+    }
+    openCanvasTab(activeWorktreeId)
   }, [activeWorktreeId])
 
   const handleNewBrowserTab = useCallback(() => {
@@ -1828,6 +1840,11 @@ function Terminal(): React.JSX.Element | null {
         } else if (unifiedTab?.contentType === 'simulator') {
           // Why: simulator tabs live only in the unified-tab store, so the
           // entity-store checks above never match them.
+          state.closeUnifiedTab(unifiedTab.id)
+        } else if (unifiedTab?.contentType === 'canvas') {
+          // Why: canvas tabs live in the unified-tab + crew canvas stores; the
+          // overlay unmount kills node PTYs, the graph row needs an explicit drop.
+          useCrewCanvas.getState().removeCanvas(unifiedTab.id)
           state.closeUnifiedTab(unifiedTab.id)
         }
       }
@@ -2386,6 +2403,7 @@ function Terminal(): React.JSX.Element | null {
             onNewTerminalWithShell={handleNewTab}
             onNewBrowserTab={handleNewBrowserTab}
             onNewSimulatorTab={mobileEmulatorEnabled ? handleNewSimulatorTab : undefined}
+            onNewCanvasTab={handleNewCanvasTab}
             onOpenEntry={handleOpenEntry}
             onNewFileTab={handleNewFile}
             onSetCustomTitle={setTabCustomTitle}
@@ -2401,6 +2419,11 @@ function Terminal(): React.JSX.Element | null {
                 ? (useAppStore.getState().getActiveTab(renderedActiveWorktreeId)?.id ?? null)
                 : null
             }
+            activeCanvasTabId={
+              activeTabType === 'canvas' && renderedActiveWorktreeId
+                ? (useAppStore.getState().getActiveTab(renderedActiveWorktreeId)?.id ?? null)
+                : null
+            }
             activeTabType={activeTabType}
             onActivateFile={(fileId) => {
               const unifiedTabs =
@@ -2409,6 +2432,11 @@ function Terminal(): React.JSX.Element | null {
               if (unifiedTab?.contentType === 'simulator') {
                 setActiveTab(fileId)
                 setActiveTabType('simulator')
+                return
+              }
+              if (unifiedTab?.contentType === 'canvas') {
+                setActiveTab(fileId)
+                setActiveTabType('canvas')
                 return
               }
               setActiveFile(fileId)
@@ -2482,7 +2510,8 @@ function Terminal(): React.JSX.Element | null {
               // Why: only hide the terminal when another tab type has content; else a stale activeTabType (e.g. 'editor' with no files after restore) blanks the screen.
               (activeTabType === 'editor' && worktreeFiles.length > 0) ||
               (activeTabType === 'browser' && worktreeBrowserTabs.length > 0) ||
-              activeTabType === 'simulator'
+              activeTabType === 'simulator' ||
+              activeTabType === 'canvas'
                 ? 'hidden'
                 : ''
             }`}
@@ -2796,6 +2825,9 @@ const WorktreeSplitSurface = React.memo(function WorktreeSplitSurface({
       />
       {isVisible || backgroundMountTabIds === null ? (
         <EmulatorPaneOverlayLayer worktreeId={worktreeId} isWorktreeActive={isVisible} />
+      ) : null}
+      {isVisible || backgroundMountTabIds === null ? (
+        <CanvasPaneOverlayLayer worktreeId={worktreeId} isWorktreeActive={isVisible} />
       ) : null}
       <AiVaultSessionDropLayer worktreeId={worktreeId} enabled={isVisible} />
     </div>

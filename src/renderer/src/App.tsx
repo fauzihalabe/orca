@@ -335,6 +335,7 @@ const WorktreeCreationPanel = lazy(
   () => import('./components/worktree-creation/WorktreeCreationPanel')
 )
 const TaskPage = lazy(() => import('./components/TaskPage'))
+const CanvasPage = lazy(() => import('./components/canvas/CanvasPage'))
 const AutomationsPage = lazy(() => import('./components/automations/AutomationsPage'))
 const ActivityPrototypePage = lazy(() => import('./components/activity/ActivityPrototypePage'))
 const Settings = lazy(() => import('./components/settings/Settings'))
@@ -503,6 +504,12 @@ function App(): React.JSX.Element {
   )
 
   const activeView = useAppStore((s) => s.activeView)
+  // Crew canvas stays MOUNTED after first visit (like the terminal workbench) —
+  // remounting would kill every agent PTY living in its nodes.
+  const canvasEverMountedRef = useRef(false)
+  if (activeView === 'canvas') {
+    canvasEverMountedRef.current = true
+  }
   const activeModal = useAppStore((s) => s.activeModal)
   const featureTipsSeenIds = useAppStore((s) => s.featureTipsSeenIds)
   const featureInteractions = useAppStore((s) => s.featureInteractions)
@@ -2438,6 +2445,19 @@ function App(): React.JSX.Element {
                               ) : null}
                             </RecoverableRenderErrorBoundary>
                           </Suspense>
+                          {canvasEverMountedRef.current ? (
+                            <div
+                              className={
+                                activeView === 'canvas'
+                                  ? 'flex flex-1 min-w-0 min-h-0'
+                                  : 'hidden flex-1 min-w-0 min-h-0'
+                              }
+                            >
+                              <Suspense fallback={null}>
+                                <CanvasPage />
+                              </Suspense>
+                            </div>
+                          ) : null}
                         </div>
                         {showFloatingTerminalButton ? (
                           <FloatingTerminalToggleButton

@@ -3059,6 +3059,38 @@ const api = {
       ipcRenderer.invoke('notebook:runPythonCell', args)
   },
 
+  crew: {
+    getBridgeInfo: (): Promise<{ port: number; token: string } | null> =>
+      ipcRenderer.invoke('crew:bridge-info'),
+    sendAskReply: (args: { requestId: string; text: string }): void => {
+      ipcRenderer.send('crew:ask:reply', args)
+    },
+    onAsk: (
+      callback: (args: {
+        requestId: string
+        from: string
+        to?: string
+        message?: string
+        tool?: string
+        args?: Record<string, unknown>
+      }) => void
+    ): (() => void) => {
+      const listener = (
+        _event: Electron.IpcRendererEvent,
+        args: {
+          requestId: string
+          from: string
+          to?: string
+          message?: string
+          tool?: string
+          args?: Record<string, unknown>
+        }
+      ): void => callback(args)
+      ipcRenderer.on('crew:ask', listener)
+      return () => ipcRenderer.removeListener('crew:ask', listener)
+    }
+  },
+
   fs: {
     readDir: (args: {
       dirPath: string

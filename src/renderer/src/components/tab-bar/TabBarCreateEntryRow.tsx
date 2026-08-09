@@ -6,7 +6,8 @@ import {
   Globe,
   Loader2,
   Smartphone,
-  TerminalSquare
+  TerminalSquare,
+  Waypoints
 } from 'lucide-react'
 import { AgentIcon } from '@/lib/agent-catalog'
 import { cn } from '@/lib/utils'
@@ -136,6 +137,8 @@ function getActionPresentation(option: ActiveOption): {
     const icon =
       option.option.kind === 'new-browser' ? (
         <Globe className="size-3.5 shrink-0" aria-hidden="true" />
+      ) : option.option.kind === 'new-canvas' ? (
+        <Waypoints className="size-3.5 shrink-0" aria-hidden="true" />
       ) : option.option.kind === 'new-markdown' ? (
         <FilePlus className="size-3.5 shrink-0" aria-hidden="true" />
       ) : option.option.kind === 'open-markdown' ? (

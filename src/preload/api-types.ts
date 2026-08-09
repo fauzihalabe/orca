@@ -2771,6 +2771,20 @@ export type PreloadApi = {
   openCodeUsage: OpenCodeUsageApi
   aiVault: AiVaultApi
   nativeChat: NativeChatApi
+  crew: {
+    getBridgeInfo: () => Promise<{ port: number; token: string } | null>
+    sendAskReply: (args: { requestId: string; text: string }) => void
+    onAsk: (
+      callback: (args: {
+        requestId: string
+        from: string
+        to?: string
+        message?: string
+        tool?: string
+        args?: Record<string, unknown>
+      }) => void
+    ) => () => void
+  }
   fs: {
     readDir: (args: { dirPath: string; connectionId?: string }) => Promise<DirEntry[]>
     readFile: (args: {

@@ -47,7 +47,7 @@ export class ActiveViewPreference {
   constructor(dataFile: string, legacyActiveView: unknown) {
     this.file = getActiveViewPreferenceFile(dataFile)
     const storedActiveView = readActiveView(this.file)
-    const fallbackActiveView = isTopLevelView(legacyActiveView) ? legacyActiveView : 'terminal'
+    const fallbackActiveView = isTopLevelView(legacyActiveView) ? legacyActiveView : 'canvas'
     this.activeView = storedActiveView ?? fallbackActiveView
     this.persistedActiveView = storedActiveView
   }

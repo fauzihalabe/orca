@@ -73,9 +73,9 @@ describe('ActiveViewPreference', () => {
     writeFileSync(getActiveViewPreferenceFile(dataFile), '{"activeView":"unknown"}', 'utf-8')
     const preference = new ActiveViewPreference(dataFile, 'not-a-view')
 
-    expect(preference.get()).toBe('terminal')
+    expect(preference.get()).toBe('canvas')
     expect(preference.set('also-not-a-view')).toBe(false)
-    expect(preference.get()).toBe('terminal')
+    expect(preference.get()).toBe('canvas')
   })
 
   it('rejects inherited object keys from a corrupt sidecar', () => {

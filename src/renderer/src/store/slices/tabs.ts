@@ -416,7 +416,12 @@ function collapseGroupLayout(
 }
 
 function toVisibleTabType(contentType: TabContentType): WorkspaceVisibleTabType {
-  if (contentType === 'browser' || contentType === 'terminal' || contentType === 'simulator') {
+  if (
+    contentType === 'browser' ||
+    contentType === 'terminal' ||
+    contentType === 'simulator' ||
+    contentType === 'canvas'
+  ) {
     return contentType
   }
   return 'editor'
@@ -710,6 +715,11 @@ export function projectWorktreeTabModelReconciliation(
       return liveBrowserIds.has(tab.entityId)
     }
     if (tab.contentType === 'simulator') {
+      return true
+    }
+    if (tab.contentType === 'canvas') {
+      // Why: canvas graphs live in the crew canvas store, keyed by tab id — no
+      // backing entity record to check, like the simulator pane.
       return true
     }
     return liveEditorIds.has(tab.entityId)

@@ -1,0 +1,37 @@
+/* Crew canvas — edge motion. The dotted flow runs continuously; the fusion
+   glow fires once when a connection is born (drawn source→target, then fades). */
+
+@keyframes crew-edge-flow {
+  to {
+    stroke-dashoffset: -8;
+  }
+}
+
+.crew-edge__fusion {
+  stroke-dasharray: 1;
+  stroke-dashoffset: 1;
+  animation: crew-edge-fusion 0.85s cubic-bezier(0.2, 0.7, 0.3, 1) forwards;
+  filter: drop-shadow(0 0 7px rgba(150, 190, 255, 0.85));
+  pointer-events: none;
+}
+
+@keyframes crew-edge-fusion {
+  0% {
+    stroke-dashoffset: 1;
+    opacity: 1;
+  }
+  70% {
+    stroke-dashoffset: 0;
+    opacity: 1;
+  }
+  100% {
+    stroke-dashoffset: 0;
+    opacity: 0;
+  }
+}
+
+.crew-node {
+  transition:
+    box-shadow 0.18s ease,
+    border-color 0.18s ease;
+}
