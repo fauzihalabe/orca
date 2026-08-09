@@ -9,14 +9,22 @@ import type { Edge, Viewport } from '@xyflow/react'
 
 // Which canvas tab + worktree a component tree belongs to. Every node/tool
 // reads its graph through this — that's what makes each canvas tab an
-// independent surface rooted at its own worktree directory.
+// independent surface rooted at its own worktree directory. `active` marks
+// the visible surface: hidden tabs stay mounted (PTYs alive) but must not
+// answer global keyboard gestures like Delete.
 type CanvasTabInfo = {
   tabId: string
   worktreeId: string | null
   worktreePath: string | null
+  active: boolean
 }
 
-const DEFAULT_INFO: CanvasTabInfo = { tabId: 'default', worktreeId: null, worktreePath: null }
+const DEFAULT_INFO: CanvasTabInfo = {
+  tabId: 'default',
+  worktreeId: null,
+  worktreePath: null,
+  active: true
+}
 
 const CanvasTabContext = createContext<CanvasTabInfo>(DEFAULT_INFO)
 
@@ -24,16 +32,23 @@ export function CanvasTabProvider({
   tabId,
   worktreeId,
   worktreePath,
+  active = true,
   children
 }: {
   tabId: string
   worktreeId?: string | null
   worktreePath?: string | null
+  active?: boolean
   children: ReactNode
 }) {
   const value = useMemo(
-    () => ({ tabId, worktreeId: worktreeId ?? null, worktreePath: worktreePath ?? null }),
-    [tabId, worktreeId, worktreePath]
+    () => ({
+      tabId,
+      worktreeId: worktreeId ?? null,
+      worktreePath: worktreePath ?? null,
+      active
+    }),
+    [tabId, worktreeId, worktreePath, active]
   )
   return <CanvasTabContext.Provider value={value}>{children}</CanvasTabContext.Provider>
 }

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   Background,
   BackgroundVariant,
@@ -72,11 +72,13 @@ function isEditableTarget(target: EventTarget | null): boolean {
 }
 
 function CanvasSurface() {
-  const { worktreePath } = useCanvasTab()
+  const { worktreePath, active } = useCanvasTab()
   const { nodes, edges } = useCanvasGraph()
   const actions = useCanvasActions()
   const readGraph = useCanvasGraphReader()
   const { screenToFlowPosition } = useReactFlow()
+  const activeRef = useRef(active)
+  activeRef.current = active
 
   useEffect(() => {
     installCrewAskListener()
@@ -103,10 +105,14 @@ function CanvasSurface() {
 
   // Delete/Backspace removes the selection — handled here because PTY xterms
   // and webviews hold keyboard focus, so xyflow's own deleteKeyCode never
-  // reaches the pane in real use.
+  // reaches the pane in real use. Only the VISIBLE canvas answers: hidden
+  // tabs stay mounted and would eat the gesture (and their selections).
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (event.key !== 'Delete' && event.key !== 'Backspace') {
+        return
+      }
+      if (!activeRef.current) {
         return
       }
       if (isEditableTarget(event.target)) {
@@ -210,7 +216,7 @@ function CanvasSurface() {
 
   return (
     <div
-      className="h-full w-full"
+      className="crew-canvas-root h-full w-full"
       style={{ background: 'var(--background)', position: 'relative' }}
     >
       <ReactFlow
@@ -280,14 +286,21 @@ function CanvasSurface() {
 export default function CanvasPage({
   tabId = 'default',
   worktreeId,
-  worktreePath
+  worktreePath,
+  isActive = true
 }: {
   tabId?: string
   worktreeId?: string | null
   worktreePath?: string | null
+  isActive?: boolean
 }) {
   return (
-    <CanvasTabProvider tabId={tabId} worktreeId={worktreeId} worktreePath={worktreePath}>
+    <CanvasTabProvider
+      tabId={tabId}
+      worktreeId={worktreeId}
+      worktreePath={worktreePath}
+      active={isActive}
+    >
       <ReactFlowProvider>
         <CanvasSurface />
       </ReactFlowProvider>

@@ -429,6 +429,28 @@ document.addEventListener(
       return
     }
 
+    // Crew canvas agent/terminal nodes handle their own drops; File→path needs
+    // preload-world webUtils, so resolve here and hand the paths over.
+    const crewTarget = (e.target as Element | null)?.closest?.('[data-crew-pty-node]')
+    if (crewTarget) {
+      e.preventDefault()
+      e.stopPropagation()
+      const files = e.dataTransfer?.files
+      if (files && files.length > 0) {
+        const paths: string[] = []
+        for (let i = 0; i < files.length; i++) {
+          const filePath = webUtils.getPathForFile(files[i])
+          if (filePath) {
+            paths.push(filePath)
+          }
+        }
+        if (paths.length > 0) {
+          crewTarget.dispatchEvent(new CustomEvent('crew:native-file-drop', { detail: { paths } }))
+        }
+      }
+      return
+    }
+
     e.preventDefault()
     e.stopPropagation()
     const files = e.dataTransfer?.files
@@ -3062,6 +3084,8 @@ const api = {
   crew: {
     getBridgeInfo: (): Promise<{ port: number; token: string } | null> =>
       ipcRenderer.invoke('crew:bridge-info'),
+    readTempFile: (args: { path: string; deleteAfter?: boolean }): Promise<string> =>
+      ipcRenderer.invoke('crew:read-temp-file', args),
     sendAskReply: (args: { requestId: string; text: string }): void => {
       ipcRenderer.send('crew:ask:reply', args)
     },

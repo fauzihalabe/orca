@@ -35,3 +35,16 @@
     box-shadow 0.18s ease,
     border-color 0.18s ease;
 }
+
+/* Why: xyflow's dark colorMode paints .react-flow a flat gray (20,20,20) that
+   covers the Orca near-black surface — let the root background show through. */
+.crew-canvas-root .react-flow {
+  background: transparent;
+}
+
+/* Why: xyflow sets inline `visibility: visible` on node wrappers, which beats
+   the hidden slot's inherited visibility and left nodes painting over editors
+   and other tabs. A hidden slot must hide EVERYTHING inside it. */
+.orca-canvas-overlay-slot[data-active='false'] * {
+  visibility: hidden !important;
+}

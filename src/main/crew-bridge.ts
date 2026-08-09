@@ -120,6 +120,26 @@ export function startCrewBridge(getMainWindow: () => { webContents: WebContents 
   ipcMain.handle('crew:bridge-info', () =>
     state ? { port: state.port, token: state.token } : null
   )
+  // Temp-file handoff for the orchestrate flow: the CLI inside the coordinator
+  // terminal writes JSON here; the renderer listener reads it back through main.
+  ipcMain.handle(
+    'crew:read-temp-file',
+    async (_event, args: { path: string; deleteAfter?: boolean }) => {
+      const { readFile, unlink } = await import('node:fs/promises')
+      const path = String(args?.path ?? '')
+      if (!path.startsWith('/tmp/') && !path.startsWith('/var/folders/')) {
+        throw new Error('path outside temp area')
+      }
+      const content = await readFile(path, 'utf8')
+      if (content.length > 512 * 1024) {
+        throw new Error('temp file too large')
+      }
+      if (args?.deleteAfter) {
+        await unlink(path).catch(() => {})
+      }
+      return content
+    }
+  )
   ipcMain.on('crew:ask:reply', (_event, args: { requestId: string; text: string }) => {
     const pending = pendingReplies.get(args.requestId)
     if (!pending) {

@@ -6,7 +6,7 @@ import { useEmulatorPaneSession } from '../../emulator-pane/use-emulator-pane-se
 import type { CrewCanvasNodeData } from '../canvas-store'
 import { translate } from '@/i18n/i18n'
 
-// iOS Simulator node — just the device floating on the canvas (Maestri-style):
+// iOS Simulator node — just the device floating on the canvas, no app chrome:
 // no toolbar, no banner. Orca's emulator engine (stream, tap, gesture) drives
 // it; the thin dark rim around the device doubles as the drag handle.
 export const SimulatorNode = memo(function SimulatorNode({ data, selected }: NodeProps) {

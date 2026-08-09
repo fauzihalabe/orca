@@ -2773,6 +2773,7 @@ export type PreloadApi = {
   nativeChat: NativeChatApi
   crew: {
     getBridgeInfo: () => Promise<{ port: number; token: string } | null>
+    readTempFile: (args: { path: string; deleteAfter?: boolean }) => Promise<string>
     sendAskReply: (args: { requestId: string; text: string }) => void
     onAsk: (
       callback: (args: {

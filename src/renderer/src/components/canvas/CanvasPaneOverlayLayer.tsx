@@ -57,13 +57,19 @@ const CanvasOverlaySlot = memo(function CanvasOverlaySlot({
     <div
       style={style}
       className="orca-canvas-overlay-slot min-h-0 min-w-0 overflow-hidden"
+      data-active={isActive ? 'true' : 'false'}
       onPointerDownCapture={() => {
         if (groupId && onFocusOwningGroup) {
           onFocusOwningGroup(groupId)
         }
       }}
     >
-      <CanvasPage tabId={tab.id} worktreeId={tab.worktreeId} worktreePath={worktreePath} />
+      <CanvasPage
+        tabId={tab.id}
+        worktreeId={tab.worktreeId}
+        worktreePath={worktreePath}
+        isActive={isActive}
+      />
     </div>
   )
 })

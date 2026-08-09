@@ -10,6 +10,12 @@ export type LaunchAgentBackgroundSessionArgs = {
   prompt?: string
   launchSource?: LaunchSource
   title?: string
+  /** Per-launch CLI args appended to the agent command (overrides the settings-derived default). */
+  agentArgs?: string | null
+  /** Per-launch env merged over the settings-derived agent env (pane stamps still win). */
+  agentEnv?: Record<string, string>
+  /** Inherited vars to strip from this spawn's environment (e.g. ambient LINEIT_* in dev shells). */
+  envToDelete?: string[]
   onData?: (chunk: string) => void
   onExit?: (ptyId: string, code: number) => void
   onAgentStatus?: (payload: ParsedAgentStatusPayload) => void

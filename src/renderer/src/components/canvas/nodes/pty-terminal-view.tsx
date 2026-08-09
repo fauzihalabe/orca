@@ -3,6 +3,8 @@ import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import '@xterm/xterm/css/xterm.css'
 import { registerAgentPty, unregisterAgentPty } from '../agent-registry'
+import { attachCrewTermClipboard, attachCrewTermFileDrop } from './crew-term-clipboard'
+import { CREW_SPAWN_ENV_TO_DELETE } from '../crew-spawn-env'
 
 // Shared live-PTY body for canvas nodes (agent, plain terminal). Owns the
 // xterm lifecycle, the visibility gate (mounting under display:none breaks the
@@ -76,6 +78,7 @@ export function PtyTerminalView({
           command: command || undefined,
           cwd: cwd || undefined,
           ...(worktreeId ? { worktreeId } : {}),
+          envToDelete: CREW_SPAWN_ENV_TO_DELETE,
           sessionId: id,
           initiallyHidden: false
         })
@@ -119,6 +122,9 @@ export function PtyTerminalView({
     }
     void spawn()
 
+    attachCrewTermClipboard(term, () => livePtyId)
+    const detachFileDrop = attachCrewTermFileDrop(container, term, () => livePtyId)
+
     const observer = new ResizeObserver(() => {
       fit.fit()
     })
@@ -127,6 +133,7 @@ export function PtyTerminalView({
     return () => {
       disposed = true
       observer.disconnect()
+      detachFileDrop()
       removeDataListener?.()
       if (livePtyId) {
         if (registryNodeId) {

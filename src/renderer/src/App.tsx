@@ -2454,7 +2454,7 @@ function App(): React.JSX.Element {
                               }
                             >
                               <Suspense fallback={null}>
-                                <CanvasPage />
+                                <CanvasPage isActive={activeView === 'canvas'} />
                               </Suspense>
                             </div>
                           ) : null}

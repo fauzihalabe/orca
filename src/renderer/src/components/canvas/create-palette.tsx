@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { translate } from '@/i18n/i18n'
 
 export type PaletteKind =
@@ -93,13 +93,32 @@ export function CreatePalette({
     }
   }, [onClose])
 
+  // Clamp into the viewport — the palette opens at the drag end point, which
+  // on small screens can land past the bottom/right edge and become unusable.
+  const rootRef = useRef<HTMLDivElement>(null)
+  const [pos, setPos] = useState({ left: x, top: y })
+  useLayoutEffect(() => {
+    const el = rootRef.current
+    if (!el) {
+      return
+    }
+    const rect = el.getBoundingClientRect()
+    const margin = 8
+    const left = Math.max(margin, Math.min(x, window.innerWidth - rect.width - margin))
+    const top = Math.max(margin, Math.min(y, window.innerHeight - rect.height - margin))
+    setPos((current) => (current.left === left && current.top === top ? current : { left, top }))
+  }, [x, y])
+
   return (
     <div
-      className="crew-create-palette nodrag nowheel"
+      ref={rootRef}
+      className="crew-create-palette nodrag nowheel scrollbar-sleek"
       style={{
         position: 'fixed',
-        left: x,
-        top: y,
+        left: pos.left,
+        top: pos.top,
+        maxHeight: 'calc(100vh - 16px)',
+        overflowY: 'auto',
         zIndex: 40,
         background: 'var(--popover, #17171b)',
         border: '1px solid var(--border, rgba(255,255,255,0.12))',

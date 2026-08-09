@@ -1,5 +1,5 @@
 import React from 'react'
-import { Bell, CalendarClock, EyeOff, Files, Search, Smartphone, Waypoints } from 'lucide-react'
+import { Bell, CalendarClock, EyeOff, Files, Search, Smartphone } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { useAppStore } from '@/store'
 import { cn } from '@/lib/utils'
@@ -58,7 +58,6 @@ const SidebarNav = React.memo(function SidebarNav() {
   const worktreePaletteShortcutCombos = useShortcutKeyComboDetails('worktree.palette')
   const openAutomationsPage = useAppStore((s) => s.openAutomationsPage)
   const openActivityPage = useAppStore((s) => s.openActivityPage)
-  const openCanvasPage = useAppStore((s) => s.openCanvasPage)
   const openMobilePage = useAppStore((s) => s.openMobilePage)
   const openArtifactsPage = useAppStore((s) => s.openArtifactsPage)
   const openModal = useAppStore((s) => s.openModal)
@@ -75,7 +74,6 @@ const SidebarNav = React.memo(function SidebarNav() {
   const showMobileButton = useAppStore((s) => shouldShowMobileButton(s.settings))
   const showArtifactsButton = useAppStore((s) => shouldShowArtifactsButton(s.settings))
   const automationsActive = activeView === 'automations'
-  const canvasActive = activeView === 'canvas'
   const activityActive = activeView === 'activity'
   const mobileActive = activeView === 'mobile'
   const artifactsActive = activeView === 'artifacts'
@@ -96,25 +94,6 @@ const SidebarNav = React.memo(function SidebarNav() {
       className="flex flex-col gap-0.5 px-2 pt-2 pb-1"
       data-contextual-tour-target="sidebar-navigation"
     >
-      <button
-        type="button"
-        onClick={openCanvasPage}
-        aria-current={canvasActive ? 'page' : undefined}
-        className={cn(
-          'flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[13px] font-medium tracking-tight transition-colors',
-          canvasActive
-            ? 'bg-worktree-sidebar-accent text-worktree-sidebar-accent-foreground'
-            : 'text-worktree-sidebar-foreground/60 hover:bg-worktree-sidebar-foreground/8'
-        )}
-      >
-        <Waypoints
-          className={cn('size-4 shrink-0', !canvasActive && 'text-worktree-sidebar-foreground/30')}
-          strokeWidth={canvasActive ? 2.25 : 1.75}
-        />
-        <span className="flex-1">
-          {translate('auto.components.sidebar.SidebarNav.canvas', 'Canvas')}
-        </span>
-      </button>
       <SetupGuideSidebarEntry />
       <SidebarTaskNavButton />
       {showArtifactsButton ? (

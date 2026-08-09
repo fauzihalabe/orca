@@ -6,8 +6,14 @@ import '@xterm/xterm/css/xterm.css'
 import { CircleAlert } from 'lucide-react'
 import type { CrewCanvasNodeData } from '../canvas-store'
 import { getCrewCanvas, useCrewCanvasTab } from '../canvas-store'
+import { startSessionCapture } from './agent-session-capture'
+import { launchAgentBackgroundSession } from '@/lib/launch-agent-background-session'
+import { useAppStore } from '@/store'
+import type { TuiAgent } from '../../../../../shared/types'
+import { CREW_SPAWN_ENV_TO_DELETE } from '../crew-spawn-env'
 import { useCanvasTab } from '../canvas-tab-context'
 import { registerAgentPty, unregisterAgentPty } from '../agent-registry'
+import { attachCrewTermClipboard, attachCrewTermFileDrop } from './crew-term-clipboard'
 import { buildAgentCommand, type PeerInfo } from './agent-command'
 import { AgentNodeHeader } from './agent-node-header'
 
@@ -32,6 +38,7 @@ export const AgentNode = memo(function AgentNode({ id, data, selected }: NodePro
   const containerRef = useRef<HTMLDivElement>(null)
   const termRef = useRef<Terminal | null>(null)
   const ptyIdRef = useRef<string | null>(null)
+  const backingTabIdRef = useRef<string | null>(null)
   const [spawnError, setSpawnError] = useState<string | null>(null)
 
   useEffect(() => {
@@ -54,7 +61,9 @@ export const AgentNode = memo(function AgentNode({ id, data, selected }: NodePro
     termRef.current = term
 
     let disposed = false
-    let removeDataListener: (() => void) | null = null
+
+    attachCrewTermClipboard(term, () => ptyIdRef.current)
+    const detachFileDrop = attachCrewTermFileDrop(container, term, () => ptyIdRef.current)
 
     // A node can mount while the canvas view is hidden (0x0) — spawning there
     // breaks xterm layout for good. Wait for real size before opening the PTY.
@@ -116,58 +125,58 @@ export const AgentNode = memo(function AgentNode({ id, data, selected }: NodePro
           }
         }
         const selfLabel = String(d.label ?? agentKind)
-        const dims = fit.proposeDimensions()
-        const spawnOpts = (sessionId: string) => ({
-          cols: dims?.cols ?? 80,
-          rows: dims?.rows ?? 24,
-          command: buildAgentCommand(
-            agentKind,
-            d.role,
-            selfLabel,
-            peers,
-            bridge,
-            d.args,
-            connectedNotes,
-            connectedKinds,
-            fresh?.cliResumeCommand,
-            linearContext
-          ),
-          cwd: nodeCwd,
-          // Why: main's spawn resolver anchors the cwd at the workspace root —
-          // without a worktreeId the requested cwd is dropped and the agent
-          // boots in $HOME instead of the worktree.
-          ...(worktreeId ? { worktreeId } : {}),
-          // Stable per-node session: a renderer reload REATTACHES to this PTY
-          // (replay below) instead of leaking a new agent process per mount.
-          sessionId,
-          initiallyHidden: false
-        })
-        // After an intentional kill (engine/account/args change) the stable id
-        // is dead — spawning onto it throws TerminalKilledError. Fall back to a
-        // fresh suffixed session in that case.
-        let spawned
-        try {
-          spawned = await window.api.pty.spawn(spawnOpts(`crew-${id}`))
-        } catch (firstError) {
-          const message = firstError instanceof Error ? firstError.message : String(firstError)
-          if (!/killed|not.?found|no such/i.test(message)) {
-            throw firstError
+        const launch = buildAgentCommand(
+          agentKind,
+          d.role,
+          selfLabel,
+          peers,
+          bridge,
+          d.args,
+          connectedNotes,
+          connectedKinds,
+          fresh?.cliResumeCommand,
+          linearContext
+        )
+        // Why: canvas agents are REAL Orca background sessions — engine launch
+        // with pane identity, stamped env, hidden tab (no strip row). That's
+        // what makes them orchestration citizens (worker/coordinator panes).
+        // The full command builder stays the source of the resume+flags suffix.
+        const argsSuffix = launch.command.replace(/^\S+\s*/, '')
+        if (!worktreeId) {
+          throw new Error('agentes precisam de uma aba canvas de worktree (sem worktree aqui)')
+        }
+        const result = await launchAgentBackgroundSession({
+          agent: agentKind as TuiAgent,
+          worktreeId,
+          agentArgs: argsSuffix,
+          ...(launch.env ? { agentEnv: launch.env } : {}),
+          envToDelete: CREW_SPAWN_ENV_TO_DELETE,
+          title: selfLabel,
+          launchSource: 'unknown',
+          onData: (chunk) => {
+            if (!disposed) {
+              term.write(chunk)
+            }
+          },
+          onExit: (_exitPtyId, code) => {
+            if (!disposed) {
+              updateNodeData(id, { lastExitCode: code })
+            }
           }
-          spawned = await window.api.pty.spawn(spawnOpts(`crew-${id}-${Date.now()}`))
+        })
+        if (!result) {
+          throw new Error('plano de launch indisponível para este agente')
         }
         if (disposed) {
+          window.api.pty.kill(result.ptyId)
           return
         }
-        ptyIdRef.current = spawned.id
-        registerAgentPty(id, spawned.id, term)
-        if (spawned.replay) {
-          term.write(spawned.replay)
+        ptyIdRef.current = result.ptyId
+        backingTabIdRef.current = result.tabId
+        registerAgentPty(id, result.ptyId, term)
+        if (result.paneKey) {
+          updateNodeData(id, { paneKey: result.paneKey })
         }
-        removeDataListener = window.api.pty.onData((event) => {
-          if (event.id === ptyIdRef.current) {
-            term.write(event.data)
-          }
-        })
         term.onData((input) => {
           if (ptyIdRef.current) {
             window.api.pty.write(ptyIdRef.current, input)
@@ -183,28 +192,13 @@ export const AgentNode = memo(function AgentNode({ id, data, selected }: NodePro
 
     // Session capture: poll Orca's AI Vault for the CLI session this node is
     // running, so an app restart can relaunch with the real `--resume` command.
-    const capture = async () => {
-      try {
-        const freshData = getCrewCanvas(tabId).nodes.find((n) => n.id === id)?.data as
-          | { cliSessionId?: string }
-          | undefined
-        const result = await window.api.aiVault.listSessions({ limit: 40 })
-        const mine = result.sessions
-          .filter((s) => s.agent === agentKind && (!nodeCwd || s.cwd === nodeCwd))
-          .sort((a, b) => (b.modifiedAt ?? '').localeCompare(a.modifiedAt ?? ''))
-        const latest = mine[0]
-        if (latest && latest.sessionId && latest.sessionId !== freshData?.cliSessionId) {
-          updateNodeData(id, {
-            cliSessionId: latest.sessionId,
-            cliResumeCommand: latest.resumeCommand
-          })
-        }
-      } catch {
-        // vault scan unavailable this tick — retry next interval
-      }
-    }
-    const captureTimer = setInterval(() => void capture(), 25_000)
-    void capture()
+    const stopSessionCapture = startSessionCapture({
+      nodeId: id,
+      agentKind,
+      cwd: nodeCwd,
+      tabId,
+      updateNodeData
+    })
 
     const observer = new ResizeObserver(() => {
       fit.fit()
@@ -217,16 +211,34 @@ export const AgentNode = memo(function AgentNode({ id, data, selected }: NodePro
 
     return () => {
       disposed = true
-      clearInterval(captureTimer)
+      stopSessionCapture()
       observer.disconnect()
-      removeDataListener?.()
+      detachFileDrop()
       if (ptyIdRef.current) {
         unregisterAgentPty(id, ptyIdRef.current)
         void window.api.pty.kill(ptyIdRef.current)
       }
+      if (backingTabIdRef.current) {
+        useAppStore.getState().closeTab(backingTabIdRef.current, {
+          recordInteraction: false,
+          localPtyTeardownOwnedExternally: true
+        })
+        backingTabIdRef.current = null
+      }
       term.dispose()
     }
-  }, [id, agentKind, nodeCwd, d.role, d.args, d.label, accountNonce, tabId, updateNodeData])
+  }, [
+    id,
+    agentKind,
+    nodeCwd,
+    worktreeId,
+    d.role,
+    d.args,
+    d.label,
+    accountNonce,
+    tabId,
+    updateNodeData
+  ])
 
   return (
     <div

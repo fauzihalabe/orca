@@ -12,7 +12,14 @@ export async function runBrowserTool(
   tool: string,
   args: Record<string, unknown>
 ): Promise<string> {
-  const wv = guestWebviewOf(nodeId)
+  // Why: a spawned browser mounts its webview async — wait for it instead of
+  // failing the agent's first call right after browser.spawn.
+  let wv = guestWebviewOf(nodeId)
+  const waitStart = Date.now()
+  while (!wv && Date.now() - waitStart < 12_000) {
+    await new Promise((resolve) => setTimeout(resolve, 500))
+    wv = guestWebviewOf(nodeId)
+  }
   if (!wv) {
     return 'erro: o navegador conectado não está montado/visível'
   }

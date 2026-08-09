@@ -1,7 +1,38 @@
 import { useCrewCanvas } from './canvas-store'
 import { agentPtyOf, agentTerminalOf } from './agent-registry'
 import { runBrowserTool } from './crew-ask-browser'
+import { describeCapabilities, spawnConnectedNode } from './crew-ask-spawn'
+import { orchestrateFromCanvas } from './crew-ask-orchestrate'
+import { terminalRun } from './crew-ask-terminal'
+import { wrapTerminalBracketedPasteText } from '../terminal-pane/terminal-bracketed-paste'
 import type { CrewCanvasNode } from './canvas-store'
+
+// Same wire shape as Orca's native agent-prompt delivery: bracketed-paste
+// payload, a settle pause so the TUI ingests it, then the submit byte.
+const AGENT_PROMPT_SUBMIT_DELAY_MS = 500
+
+// Only these data keys cross the spawn boundary — the agent never sets cwd,
+// sizes or raw node internals from the bridge.
+function sanitizeSpawnArgs(kind: string, args: Record<string, unknown>): Record<string, unknown> {
+  const out: Record<string, unknown> = {}
+  if (typeof args.label === 'string' && args.label.trim()) {
+    out.label = args.label.trim()
+  }
+  if (kind === 'agent') {
+    const agentKind = String(args.agentKind ?? 'claude')
+    out.agentKind = ['claude', 'codex', 'kimi'].includes(agentKind) ? agentKind : 'claude'
+    if (typeof args.role === 'string' && args.role.trim()) {
+      out.role = args.role.trim()
+    }
+  }
+  if (kind === 'browser' && typeof args.url === 'string' && args.url.trim()) {
+    out.url = args.url.trim()
+  }
+  if (kind === 'note' && typeof args.text === 'string') {
+    out.text = args.text
+  }
+  return out
+}
 
 // Crew tools — the agent-facing capabilities of the canvas. An agent calls
 // the bridge (curl taught in its spawn preamble); the bridge forwards here;
@@ -51,12 +82,19 @@ function everyNode(): LocatedNode[] {
 }
 
 function findAgentNode(label: string): LocatedNode | undefined {
-  return everyNode().find(
+  const matches = everyNode().filter(
     ({ node }) =>
       node.data.kind === 'agent' &&
       String(node.data.label ?? node.data.agentKind ?? '').toLowerCase() ===
         label.trim().toLowerCase()
   )
+  if (matches.length <= 1) {
+    return matches[0]
+  }
+  // Why: labels collide across canvases (two "claude" in different tabs, dead
+  // nodes in the unmounted global view). Only a spawned agent — live PTY in
+  // the registry — can answer, so it wins the address.
+  return matches.find(({ node }) => agentPtyOf(node.id) !== null) ?? matches[0]
 }
 
 // Nodes of a given kind directly connected to `nodeId` within its own tab.
@@ -97,6 +135,20 @@ async function route(payload: AskPayload): Promise<string> {
   const caller = findAgentNode(payload.from)
   if (!caller) {
     return `erro: agente chamador "${payload.from}" não encontrado no canvas`
+  }
+
+  if (tool === 'capabilities') {
+    const graph = useCrewCanvas.getState().canvases[caller.tabId]
+    return describeCapabilities(caller.node, graph?.edges ?? [], graph?.nodes ?? [])
+  }
+
+  if (tool.endsWith('.spawn')) {
+    const kind = tool.slice(0, -'.spawn'.length)
+    return spawnConnectedNode(caller.node, caller.tabId, kind, sanitizeSpawnArgs(kind, args))
+  }
+
+  if (tool === 'orchestrate') {
+    return orchestrateFromCanvas(caller.node, caller.tabId, args)
   }
 
   if (tool === 'ask') {
@@ -161,7 +213,11 @@ async function askPeer(from: string, to: string, message: string): Promise<strin
     return `erro: o agente "${to}" não tem terminal vivo (respawn ou aguarde o boot)`
   }
 
-  window.api.pty.write(ptyId, `[mensagem de ${from}] ${message}\r`)
+  // Native agent-prompt delivery (same wire format as Orca's own agent
+  // terminals): bracketed-paste payload, settle pause, then the submit byte.
+  window.api.pty.write(ptyId, wrapTerminalBracketedPasteText(`[mensagem de ${from}] ${message}`))
+  await new Promise((resolve) => setTimeout(resolve, AGENT_PROMPT_SUBMIT_DELAY_MS))
+  window.api.pty.write(ptyId, '\r')
 
   const readScreen = (): string => {
     const lines: string[] = []
@@ -243,41 +299,4 @@ function todoTool(
     return `${item.done ? 'reaberto' : 'concluído'}: ${item.text}`
   }
   return `erro: tool desconhecida ${tool}`
-}
-
-async function terminalRun(nodeId: string, command: string): Promise<string> {
-  if (!command.trim()) {
-    return 'erro: command obrigatório'
-  }
-  const ptyId = agentPtyOf(nodeId)
-  const term = agentTerminalOf(nodeId)
-  if (!ptyId || !term) {
-    return 'erro: o terminal conectado não está vivo'
-  }
-  const before = term.buffer.active.length
-  window.api.pty.write(ptyId, `${command}\r`)
-  let lastLen = -1
-  let stable = 0
-  const started = Date.now()
-  while (Date.now() - started < 30_000) {
-    await new Promise((resolve) => setTimeout(resolve, 600))
-    const len = term.buffer.active.length
-    if (len === lastLen) {
-      stable += 1
-    } else {
-      stable = 0
-      lastLen = len
-    }
-    if (stable >= 3) {
-      break
-    }
-  }
-  const buffer = term.buffer.active
-  const lines: string[] = []
-  for (let i = Math.max(0, before - 1); i < buffer.length; i++) {
-    const text = buffer.getLine(i)?.translateToString(true).trimEnd() ?? ''
-    lines.push(text)
-  }
-  const out = lines.join('\n').trim()
-  return out.length > 0 ? out.slice(-3000) : '(sem saída)'
 }
