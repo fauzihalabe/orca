@@ -422,6 +422,80 @@ describe('AgentBrowserBridge', () => {
     expect(captureCalls).toHaveLength(1)
   })
 
+  it('normalizes agent-browser network requests to the native Orca log contract', async () => {
+    succeedWith({
+      requests: [
+        {
+          requestId: 'request-1',
+          method: 'POST',
+          timestamp: 100,
+          url: 'https://example.com/api'
+        },
+        {
+          requestId: 'request-1',
+          mimeType: 'application/json',
+          responseHeaders: { 'Content-Length': '42' },
+          status: 201,
+          timestamp: 101,
+          url: 'https://example.com/api'
+        },
+        {
+          requestId: 'request-2',
+          method: 'GET',
+          status: 200,
+          timestamp: 102,
+          url: 'https://example.com/next'
+        }
+      ]
+    })
+
+    await expect(bridge.networkLog(1)).resolves.toEqual({
+      entries: [
+        {
+          method: 'GET',
+          mimeType: '',
+          size: 0,
+          status: 200,
+          timestamp: 102,
+          url: 'https://example.com/next'
+        }
+      ],
+      truncated: true
+    })
+
+    succeedWith({
+      requests: [
+        {
+          requestId: 'request-1',
+          method: 'POST',
+          timestamp: 100,
+          url: 'https://example.com/api'
+        },
+        {
+          requestId: 'request-1',
+          mimeType: 'application/json',
+          responseHeaders: { 'Content-Length': '42' },
+          status: 201,
+          timestamp: 101,
+          url: 'https://example.com/api'
+        }
+      ]
+    })
+    await expect(bridge.networkLog()).resolves.toEqual({
+      entries: [
+        {
+          method: 'POST',
+          mimeType: 'application/json',
+          size: 42,
+          status: 201,
+          timestamp: 101,
+          url: 'https://example.com/api'
+        }
+      ],
+      truncated: false
+    })
+  })
+
   it('routes snapshot to an explicit browser page id without changing the active tab', async () => {
     const tabs = new Map([
       ['tab-a', 1],

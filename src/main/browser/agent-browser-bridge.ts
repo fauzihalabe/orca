@@ -42,6 +42,7 @@ import type {
   BrowserInterceptEnableResult,
   BrowserInterceptDisableResult,
   BrowserConsoleResult,
+  BrowserNetworkEntry,
   BrowserNetworkLogResult,
   BrowserCaptureStartResult,
   BrowserCaptureStopResult,
@@ -254,6 +255,65 @@ function stripAgentBrowserTargetArgs(args: string[]): string[] {
     stripped.push(arg)
   }
   return stripped
+}
+
+type AgentBrowserNetworkRequest = Partial<BrowserNetworkEntry> & {
+  requestId?: unknown
+  encodedDataLength?: unknown
+  responseHeaders?: unknown
+}
+
+function normalizeAgentBrowserNetworkLog(
+  value: unknown,
+  requestedLimit?: number
+): BrowserNetworkLogResult {
+  const result = value && typeof value === 'object' ? (value as Record<string, unknown>) : {}
+  // agent-browser currently names this collection `requests`, while Orca's
+  // public browser RPC has always exposed `entries`. Normalize at the native
+  // bridge boundary so every consumer (CLI, Canvas and mobile) gets one stable
+  // contract even when the bundled helper changes its wire shape.
+  const raw = Array.isArray(result.entries)
+    ? result.entries
+    : Array.isArray(result.requests)
+      ? result.requests
+      : []
+  const mergedByRequest = new Map<string, AgentBrowserNetworkRequest>()
+  for (const [index, candidate] of raw.entries()) {
+    if (!candidate || typeof candidate !== 'object') {
+      continue
+    }
+    const request = candidate as AgentBrowserNetworkRequest
+    const requestId = typeof request.requestId === 'string' ? request.requestId : `entry-${index}`
+    mergedByRequest.set(requestId, { ...mergedByRequest.get(requestId), ...request })
+  }
+
+  const entries = [...mergedByRequest.values()].map((request): BrowserNetworkEntry => {
+    const responseHeaders =
+      request.responseHeaders && typeof request.responseHeaders === 'object'
+        ? (request.responseHeaders as Record<string, unknown>)
+        : {}
+    const contentLength = Object.entries(responseHeaders).find(
+      ([name]) => name.toLowerCase() === 'content-length'
+    )?.[1]
+    const rawSize = request.size ?? request.encodedDataLength ?? contentLength
+    const size = Number(rawSize)
+    return {
+      url: typeof request.url === 'string' ? request.url : '',
+      method: typeof request.method === 'string' ? request.method : 'GET',
+      status: Number.isFinite(Number(request.status)) ? Number(request.status) : 0,
+      mimeType: typeof request.mimeType === 'string' ? request.mimeType : '',
+      size: Number.isFinite(size) ? size : 0,
+      timestamp: Number.isFinite(Number(request.timestamp)) ? Number(request.timestamp) : Date.now()
+    }
+  })
+  const limit =
+    typeof requestedLimit === 'number' && Number.isFinite(requestedLimit)
+      ? Math.max(0, Math.floor(requestedLimit))
+      : 100
+  return {
+    entries: limit === 0 ? [] : entries.slice(-limit),
+    truncated: result.truncated === true || entries.length > limit
+  }
 }
 
 // Why: agent-browser returns generic errors for stale/unknown refs; map to a specific code so agents can detect and re-snapshot.
@@ -2016,15 +2076,13 @@ export class AgentBrowserBridge {
   }
 
   async networkLog(
-    _limit?: number,
+    limit?: number,
     worktreeId?: string,
     browserPageId?: string
   ): Promise<BrowserNetworkLogResult> {
     return this.enqueueTargetedCommand(worktreeId, browserPageId, async (sessionName) => {
-      return (await this.execAgentBrowser(sessionName, [
-        'network',
-        'requests'
-      ])) as BrowserNetworkLogResult
+      const result = await this.execAgentBrowser(sessionName, ['network', 'requests'])
+      return normalizeAgentBrowserNetworkLog(result, limit)
     })
   }
 
