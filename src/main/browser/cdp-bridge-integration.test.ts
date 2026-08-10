@@ -562,6 +562,10 @@ describe('Browser automation pipeline (integration)', () => {
     expect(startRes.ok).toBe(true)
 
     for (let i = 0; i <= 1000; i++) {
+      activeGuestHarness.emitDebuggerMessage('Network.requestWillBeSent', {
+        requestId: `req-${i}`,
+        request: { method: 'POST' }
+      })
       activeGuestHarness.emitDebuggerMessage('Network.responseReceived', {
         requestId: `req-${i}`,
         response: {
@@ -580,6 +584,7 @@ describe('Browser automation pipeline (integration)', () => {
           {
             networkLog: unknown[]
             networkRequestMap: Map<string, unknown>
+            networkRequestMethods: Map<string, string>
           }
         >
       }
@@ -588,14 +593,56 @@ describe('Browser automation pipeline (integration)', () => {
     expect(state?.networkLog).toHaveLength(1000)
     expect(state?.networkRequestMap.has('req-0')).toBe(false)
     expect(state?.networkRequestMap.size).toBe(1000)
+    expect(state?.networkRequestMethods.size).toBe(1000)
+    expect(state?.networkRequestMethods.has('req-0')).toBe(false)
+    expect(state?.networkLog.at(-1)).toMatchObject({ method: 'POST' })
 
     activeGuestHarness.emitDebuggerMessage('Network.loadingFailed', { requestId: 'req-1' })
     expect(state?.networkRequestMap.has('req-1')).toBe(false)
     expect(state?.networkRequestMap.size).toBe(999)
+    expect(state?.networkRequestMethods.has('req-1')).toBe(false)
+    expect(state?.networkRequestMethods.size).toBe(999)
 
     const stopRes = await rpc('browser.capture.stop')
     expect(stopRes.ok).toBe(true)
     expect(state?.networkRequestMap.size).toBe(0)
+    expect(state?.networkRequestMethods.size).toBe(0)
+  })
+
+  it('keeps native capture active without clearing traffic when acquired again', async () => {
+    expect((await rpc('browser.capture.start')).ok).toBe(true)
+    activeGuestHarness.emitDebuggerMessage('Network.requestWillBeSent', {
+      requestId: 'request-1',
+      request: { method: 'PATCH' }
+    })
+    activeGuestHarness.emitDebuggerMessage('Network.responseReceived', {
+      requestId: 'request-1',
+      response: {
+        url: 'https://example.com/api/item',
+        status: 204,
+        mimeType: 'application/json'
+      },
+      timestamp: 1
+    })
+
+    expect((await rpc('browser.capture.start')).ok).toBe(true)
+    const result = await rpc('browser.network')
+
+    expect(result.ok).toBe(true)
+    expect(result.result).toMatchObject({
+      entries: [
+        expect.objectContaining({
+          method: 'PATCH',
+          url: 'https://example.com/api/item',
+          status: 204
+        })
+      ]
+    })
+    expect(
+      activeGuestHarness.sendCommandMock.mock.calls.filter(
+        ([method]) => method === 'Runtime.enable'
+      )
+    ).toHaveLength(1)
   })
 
   // ── Eval ──

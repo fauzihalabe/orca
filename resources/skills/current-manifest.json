@@ -41,17 +41,17 @@
       "name": "orca-canvas",
       "sourcePath": "skills/orca-canvas",
       "releaseRevision": 1,
-      "packageDigest": "d90636006c7954d5410fc0a1c4953f9283d0012dea9ccbe7e80d935e77526015",
-      "gitTreeSha": "482e46369534caf9f401fe08c4acb6f18ec37d2e",
+      "packageDigest": "0efef370b6f0774bfb9cda1a29db681026aede2376c9c9f5357bc58bd3e80a97",
+      "gitTreeSha": "08dc8d5a10cb3f52c24708fa2ac058625dafca3d",
       "files": [
         {
           "path": "SKILL.md",
-          "size": 2597,
+          "size": 3071,
           "executable": false,
           "classification": "text",
-          "exactSha256": "f42fbdd1aa2748c6d7fb7dfcac59de5ca54c70b05e5ce0fe7986ca6af88323f1",
-          "textNormalizedSha256": "f42fbdd1aa2748c6d7fb7dfcac59de5ca54c70b05e5ce0fe7986ca6af88323f1",
-          "identitySha256": "f42fbdd1aa2748c6d7fb7dfcac59de5ca54c70b05e5ce0fe7986ca6af88323f1"
+          "exactSha256": "ed1804bc8f5ffbd02776fe40077ba6195e3c09a468598fe3956a59e093f52b01",
+          "textNormalizedSha256": "ed1804bc8f5ffbd02776fe40077ba6195e3c09a468598fe3956a59e093f52b01",
+          "identitySha256": "ed1804bc8f5ffbd02776fe40077ba6195e3c09a468598fe3956a59e093f52b01"
         }
       ]
     },

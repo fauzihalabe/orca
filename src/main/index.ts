@@ -1434,6 +1434,7 @@ function openMainWindow(): BrowserWindow {
   )
   startCrewBridge(() => mainWindow, {
     statePath: join(app.getPath('userData'), 'crew-canvas', 'state.json'),
+    devMode: !app.isPackaged,
     // The bridge starts before all runtime drivers are attached; resolve the
     // service lazily so native browser/emulator calls use the final service.
     getRuntime: () => runtime ?? null

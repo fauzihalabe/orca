@@ -11,13 +11,12 @@ import {
 import type { OrcaRuntimeService } from './runtime/orca-runtime'
 import { CrewCanvasBroker, type CrewCanvasBridgePayload } from './crew-canvas-broker'
 
-// Crew bridge — the local HTTP endpoint agent CLIs call to talk to each other.
-// An agent runs plain `curl` (taught in its spawn preamble) → this server → the
-// renderer owns the node→pty map and delivers the message into the target
-// agent's terminal, then streams back what the target produced. No daemons,
-// no cloud: 127.0.0.1 only, random port + node-scoped token. Agents survive
-// main-process restarts, so each one discovers the current endpoint through an
-// atomically refreshed descriptor in Orca's user-data directory.
+// Crew bridge — authenticated local transport into the main-process Canvas
+// capability broker. The broker owns graph authorization and dispatches into
+// OrcaRuntimeService; the renderer is involved only when a visual node must be
+// created. No screen scraping or parallel agent/browser engine lives here.
+// Agents survive main-process restarts and discover the current endpoint from
+// an atomically refreshed, node-scoped descriptor in Orca user data.
 
 type BridgeState = {
   port: number
@@ -110,7 +109,11 @@ function refreshPersistedAgentBridgeDescriptors(current: BridgeState): void {
 
 export function startCrewBridge(
   getMainWindow: () => { webContents: WebContents } | null,
-  options: { statePath?: string; getRuntime?: () => OrcaRuntimeService | null } = {}
+  options: {
+    statePath?: string
+    getRuntime?: () => OrcaRuntimeService | null
+    devMode?: boolean
+  } = {}
 ): { port: number; token: string } {
   if (state) {
     return { port: state.port, token: state.token }
@@ -144,7 +147,8 @@ export function startCrewBridge(
     statePath,
     getRuntime: options.getRuntime ?? (() => null),
     forwardToRenderer,
-    getMainWebContents: () => state?.getMainWindow()?.webContents ?? null
+    getMainWebContents: () => state?.getMainWindow()?.webContents ?? null,
+    devMode: options.devMode
   })
   options.getRuntime?.()?.setCrewCanvasRequestHandler((payload) => broker.handle(payload))
   const server = createServer((req, res) => {
@@ -294,26 +298,6 @@ export function startCrewBridge(
     'crew:canvas-remove',
     (_event, args: { tabId: string; baseRevision: number }) =>
       state?.broker.removeTab(args) ?? { accepted: false, conflict: true, state: broker.getState() }
-  )
-  // Temp-file handoff for the orchestrate flow: the CLI inside the coordinator
-  // terminal writes JSON here; the renderer listener reads it back through main.
-  ipcMain.handle(
-    'crew:read-temp-file',
-    async (_event, args: { path: string; deleteAfter?: boolean }) => {
-      const { readFile, unlink } = await import('node:fs/promises')
-      const path = String(args?.path ?? '')
-      if (!path.startsWith('/tmp/') && !path.startsWith('/var/folders/')) {
-        throw new Error('path outside temp area')
-      }
-      const content = await readFile(path, 'utf8')
-      if (content.length > 512 * 1024) {
-        throw new Error('temp file too large')
-      }
-      if (args?.deleteAfter) {
-        await unlink(path).catch(() => {})
-      }
-      return content
-    }
   )
   ipcMain.on('crew:ask:reply', (_event, args: { requestId: string; text: string }) => {
     const pending = pendingReplies.get(args.requestId)

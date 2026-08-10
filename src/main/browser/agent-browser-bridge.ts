@@ -1971,12 +1971,15 @@ export class AgentBrowserBridge {
     browserPageId?: string
   ): Promise<BrowserCaptureStartResult> {
     return this.enqueueTargetedCommand(worktreeId, browserPageId, async (sessionName) => {
+      const session = this.sessions.get(sessionName)
+      if (session?.activeCapture) {
+        return { capturing: true }
+      }
       const result = (await this.execAgentBrowser(sessionName, [
         'network',
         'har',
         'start'
       ])) as BrowserCaptureStartResult
-      const session = this.sessions.get(sessionName)
       if (session) {
         session.activeCapture = true
       }

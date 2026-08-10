@@ -3110,8 +3110,6 @@ const api = {
       ipcRenderer.on('crew:canvas-update', listener)
       return () => ipcRenderer.removeListener('crew:canvas-update', listener)
     },
-    readTempFile: (args: { path: string; deleteAfter?: boolean }): Promise<string> =>
-      ipcRenderer.invoke('crew:read-temp-file', args),
     sendAskReply: (args: { requestId: string; text: string }): void => {
       ipcRenderer.send('crew:ask:reply', args)
     },

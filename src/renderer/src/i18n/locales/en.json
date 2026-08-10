@@ -15024,7 +15024,7 @@
           "todo": "Todo",
           "todoHint": "living checklist",
           "timer": "Timer",
-          "timerHint": "countdown",
+          "timerHint": "stopwatch",
           "simulator": "Simulator",
           "simulatorHint": "iOS device (Orca engine)",
           "network": "Network",

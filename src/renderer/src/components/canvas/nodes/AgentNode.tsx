@@ -16,7 +16,6 @@ import { launchAgentBackgroundSession } from '@/lib/launch-agent-background-sess
 import type { TuiAgent } from '../../../../../shared/types'
 import { CREW_SPAWN_ENV_TO_DELETE } from '../crew-spawn-env'
 import { useCanvasTab } from '../canvas-tab-context'
-import { registerAgentPty, unregisterAgentPty } from '../agent-registry'
 import { attachCrewTermClipboard, attachCrewTermFileDrop } from './crew-term-clipboard'
 import { buildAgentCommand, type PeerInfo } from './agent-command'
 import { AgentNodeHeader } from './agent-node-header'
@@ -71,7 +70,7 @@ export const AgentNode = memo(function AgentNode({ id, data, selected }: NodePro
     let removeDataListener: (() => void) | null = null
     let removeExitListener: (() => void) | null = null
 
-    attachCrewTermClipboard(term, () => ptyIdRef.current)
+    const detachClipboard = attachCrewTermClipboard(container, term, () => ptyIdRef.current)
     const detachFileDrop = attachCrewTermFileDrop(container, term, () => ptyIdRef.current)
 
     // A node can mount while the canvas view is hidden (0x0) — spawning there
@@ -220,7 +219,6 @@ export const AgentNode = memo(function AgentNode({ id, data, selected }: NodePro
           if (disposed) {
             return
           }
-          registerAgentPty(id, ptyId, term)
           if (options?.subscribe !== false) {
             removeDataListener = subscribeToPtyData(ptyId, (chunk) => {
               if (!disposed) {
@@ -328,12 +326,10 @@ export const AgentNode = memo(function AgentNode({ id, data, selected }: NodePro
       disposed = true
       stopSessionCapture()
       observer.disconnect()
+      detachClipboard()
       detachFileDrop()
       removeDataListener?.()
       removeExitListener?.()
-      if (ptyIdRef.current) {
-        unregisterAgentPty(id, ptyIdRef.current)
-      }
       term.dispose()
     }
   }, [

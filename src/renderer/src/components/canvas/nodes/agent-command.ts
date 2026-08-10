@@ -140,7 +140,7 @@ function bridgeBlock(
     `"todo.spawn", "timer.spawn", "simulator.spawn", "network.spawn" — o node nasce já conectado a você por linha. ` +
     `Network precisa depois ser ligado a um browser.\n` +
     `- Orquestrar pelo runtime: tool "orchestrate" {"objective":"...","tasks"?:[{"title"?,"spec"}],"workers"?:["<labels>"]} ` +
-    `— cria um Run nativo do Orca (aba "Crew Coordinator") e despacha seus agentes conectados como workers.\n\n` +
+    `— usa este agente como coordenador, cria um Run nativo persistido do Orca e despacha seus agentes conectados como workers.\n\n` +
     `Motor nativo do Orca (você é um terminal ` +
     `first-class do runtime, aparece no \`orca terminal list\` com handle term_*):\n` +
     `- Orquestração formal (runs/tasks/workers persistidos no host): \`orca orchestration run-create\`, ` +
@@ -217,7 +217,9 @@ export function buildAgentCommand(
       caps.push('- Todo conectado: "todo.list", "todo.add" {"text"}, "todo.toggle" {"itemId"}.')
     }
     if (connectedKinds.includes('terminal')) {
-      caps.push('- Terminal conectado: "terminal.run" {"command"} — roda e devolve a saída.')
+      caps.push(
+        '- Terminal conectado: "terminal.send" {"text" ou "command"} envia pelo runtime nativo; "terminal.read" {"cursor"?} acompanha a saída sem raspar a tela. "terminal.run" é o alias compatível de envio e também deve ser acompanhado por terminal.read.'
+      )
     }
     if (connectedKinds.includes('simulator')) {
       caps.push(
@@ -231,7 +233,7 @@ export function buildAgentCommand(
     }
     if (connectedKinds.includes('timer')) {
       caps.push(
-        '- Timer conectado: "timer.read", "timer.start" {"minutes" ou "ms"}, "timer.pause", "timer.reset".'
+        '- Cronômetro conectado (contagem crescente): "timer.read", "timer.start", "timer.pause", "timer.reset".'
       )
     }
     lines.push(bridgeBlock(selfLabel, caps, connectedBrowserPageIds, agentKind === 'codex'))

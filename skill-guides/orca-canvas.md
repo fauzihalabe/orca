@@ -27,7 +27,8 @@ Call a specific node by stable id when there is more than one node of a kind:
 orca canvas call --tool browser.snapshot --node <browser-node> --json
 orca canvas call --tool simulator.ax --node <simulator-node> --json
 orca canvas call --tool note.read --node <note-node> --json
-orca canvas call --tool terminal.run --node <terminal-node> --args '{"command":"pwd"}' --json
+orca canvas call --tool terminal.send --node <terminal-node> --args '{"text":"pwd"}' --json
+orca canvas call --tool terminal.read --node <terminal-node> --args '{"cursor":0}' --json
 ```
 
 For every request with two or more concrete actions, keep a durable Todo in
@@ -54,10 +55,17 @@ orca screenshot --page canvas-<browser-node> --json
 ```
 
 The network node observes a browser only when it is also directly connected to
-that browser. Notes, todos, and timers are durable Canvas state owned by the
-main process, so an agent can update them even while the Canvas view is hidden
-or recovering after a restart. Terminal nodes use Orca's native PTY bridge and
-stable Canvas session ids; wait for the node to become live after spawning it.
+that browser. It acquires Orca's native browser capture automatically; traffic
+generated after capture starts appears in the node. Notes, todos, and stopwatch
+timers are durable Canvas state owned by the main process, so an agent can
+update them even while the Canvas view is hidden or recovering after a restart.
+Terminal nodes use Orca's native terminal handles and cursor reads; wait for the
+node to become live after spawning it.
+
+`canvas ask` and `orchestrate` use the caller's native terminal as coordinator
+and persist Orca Runs, Tasks, worker dispatches, lifecycle, and reports. They do
+not type into or scrape another terminal. The renderer only creates visual
+nodes requested by `*.spawn`.
 
 Never infer a capability from a label or from an old prompt. Re-read
 `connections --json` after the user changes a line. If there are multiple

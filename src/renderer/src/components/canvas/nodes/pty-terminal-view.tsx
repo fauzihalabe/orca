@@ -5,7 +5,6 @@ import '@xterm/xterm/css/xterm.css'
 import { useAppStore } from '@/store'
 import { singlePaneLayoutSnapshot } from '@/store/slices/terminal-helpers'
 import { FLOATING_TERMINAL_WORKTREE_ID } from '../../../../../shared/constants'
-import { registerAgentPty, unregisterAgentPty } from '../agent-registry'
 import { getCrewCanvas } from '../canvas-store'
 import { attachCrewTermClipboard, attachCrewTermFileDrop } from './crew-term-clipboard'
 import {
@@ -24,7 +23,6 @@ export function PtyTerminalView({
   command,
   cwd,
   worktreeId,
-  registryNodeId,
   tabId,
   nodeId,
   label,
@@ -34,7 +32,6 @@ export function PtyTerminalView({
   command: string
   cwd?: string
   worktreeId?: string | null
-  registryNodeId?: string
   tabId: string
   nodeId: string
   label: string
@@ -105,9 +102,6 @@ export function PtyTerminalView({
       }
       if (disposed) {
         return
-      }
-      if (registryNodeId) {
-        registerAgentPty(registryNodeId, ptyId, term)
       }
       removeDataListener = subscribeToPtyData(ptyId, (chunk) => {
         if (!disposed) {
@@ -194,7 +188,7 @@ export function PtyTerminalView({
     }
     void spawn()
 
-    attachCrewTermClipboard(term, () => livePtyId)
+    const detachClipboard = attachCrewTermClipboard(container, term, () => livePtyId)
     const detachFileDrop = attachCrewTermFileDrop(container, term, () => livePtyId)
 
     const observer = new ResizeObserver(() => {
@@ -209,16 +203,14 @@ export function PtyTerminalView({
     return () => {
       disposed = true
       observer.disconnect()
+      detachClipboard()
       detachFileDrop()
       removeDataListener?.()
-      if (livePtyId && registryNodeId) {
-        unregisterAgentPty(registryNodeId, livePtyId)
-      }
       // Do not kill here: native TerminalTab owns the PTY. Explicit Canvas
       // node deletion closes that tab through canvas-store cleanup.
       term.dispose()
     }
-  }, [command, cwd, label, nodeId, onSessionReady, registryNodeId, sessionId, tabId, worktreeId])
+  }, [command, cwd, label, nodeId, onSessionReady, sessionId, tabId, worktreeId])
 
   return (
     <div

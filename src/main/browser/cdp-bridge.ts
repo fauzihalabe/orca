@@ -77,6 +77,9 @@ type TabState = {
   pausedRequests: Map<string, BrowserInterceptedRequest>
   // Why: maps CDP requestId → networkLog entry so loadingFinished attributes size to the right overlapping response.
   networkRequestMap: Map<string, BrowserNetworkEntry>
+  // responseReceived omits the HTTP method, so retain it from
+  // requestWillBeSent until the matching response/settlement arrives.
+  networkRequestMethods: Map<string, string>
 }
 
 type QueuedCommand = {
@@ -834,11 +837,15 @@ export class CdpBridge {
       const tabId = this.resolveTabId(guest.id)
       const state = this.getOrCreateTabState(tabId)
 
+      if (state.capturing) {
+        return { capturing: true }
+      }
       await sender('Runtime.enable')
       state.capturing = true
       state.consoleLog = []
       state.networkLog = []
       state.networkRequestMap.clear()
+      state.networkRequestMethods.clear()
 
       return { capturing: true }
     })
@@ -852,6 +859,7 @@ export class CdpBridge {
 
       state.capturing = false
       state.networkRequestMap.clear()
+      state.networkRequestMethods.clear()
 
       return { stopped: true }
     })
@@ -1097,7 +1105,8 @@ export class CdpBridge {
         intercepting: false,
         interceptPatterns: [],
         pausedRequests: new Map(),
-        networkRequestMap: new Map()
+        networkRequestMap: new Map(),
+        networkRequestMethods: new Map()
       }
       this.tabState.set(tabId, state)
     }
@@ -1214,6 +1223,18 @@ export class CdpBridge {
       }
       // Why: buffer console/network events per-tab so the agent can retrieve them on demand.
       if (state.capturing) {
+        if (method === 'Network.requestWillBeSent') {
+          const p = params as { requestId?: string; request?: { method?: string } } | undefined
+          if (p?.requestId) {
+            state.networkRequestMethods.set(p.requestId, p.request?.method ?? 'GET')
+            if (state.networkRequestMethods.size > CAPTURE_LOG_LIMIT) {
+              const oldest = state.networkRequestMethods.keys().next().value
+              if (typeof oldest === 'string') {
+                state.networkRequestMethods.delete(oldest)
+              }
+            }
+          }
+        }
         if (method === 'Runtime.consoleAPICalled') {
           const p = params as
             | {
@@ -1254,7 +1275,7 @@ export class CdpBridge {
           if (p?.response) {
             const entry: BrowserNetworkEntry = {
               url: p.response.url ?? '',
-              method: '',
+              method: p.requestId ? (state.networkRequestMethods.get(p.requestId) ?? 'GET') : 'GET',
               status: p.response.status ?? 0,
               mimeType: p.response.mimeType ?? '',
               size: 0,
@@ -1286,6 +1307,7 @@ export class CdpBridge {
               entry.size = p.encodedDataLength
             }
             state.networkRequestMap.delete(p.requestId)
+            state.networkRequestMethods.delete(p.requestId)
           }
         }
       }

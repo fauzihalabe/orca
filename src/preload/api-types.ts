@@ -2791,7 +2791,6 @@ export type PreloadApi = {
     }) => Promise<CrewCanvasSyncResult>
     removeCanvas: (args: { tabId: string; baseRevision: number }) => Promise<CrewCanvasSyncResult>
     onCanvasUpdate: (callback: (event: CrewCanvasUpdateEvent) => void) => () => void
-    readTempFile: (args: { path: string; deleteAfter?: boolean }) => Promise<string>
     sendAskReply: (args: { requestId: string; text: string }) => void
     onAsk: (
       callback: (args: {

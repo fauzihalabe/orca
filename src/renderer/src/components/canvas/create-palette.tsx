@@ -43,7 +43,7 @@ const paletteEntries = (): { kind: PaletteKind; label: string; hint: string }[] 
   {
     kind: 'timer',
     label: translate('auto.components.canvas.CanvasPage.timer', 'Timer'),
-    hint: translate('auto.components.canvas.CanvasPage.timerHint', 'countdown')
+    hint: translate('auto.components.canvas.CanvasPage.timerHint', 'stopwatch')
   },
   {
     kind: 'simulator',

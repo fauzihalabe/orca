@@ -73,7 +73,6 @@ export const TerminalNode = memo(function TerminalNode({ id, data, selected }: N
         command=""
         cwd={d.cwd ?? worktreePath ?? undefined}
         worktreeId={worktreeId}
-        registryNodeId={id}
         tabId={tabId}
         nodeId={id}
         label={label}

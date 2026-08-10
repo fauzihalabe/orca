@@ -6,16 +6,22 @@ import { useCrewCanvasTab } from '../canvas-store'
 import { useCanvasTab } from '../canvas-tab-context'
 import { translate } from '@/i18n/i18n'
 
-// Timer node — countdown that survives reloads (endAt is persisted; the
-// remaining time is derived, never stored).
+// Stopwatch node — elapsed time survives reloads. While running, startedAt is
+// persisted and the display derives elapsed time from the wall clock.
 export const TimerNode = memo(function TimerNode({ id, data, selected }: NodeProps) {
-  const d = data as CrewCanvasNodeData & { endAt?: number; remainingMs?: number }
+  const d = data as CrewCanvasNodeData & {
+    stopwatchStartedAt?: number
+    stopwatchElapsedMs?: number
+  }
   const tabId = useCanvasTab().tabId
   const updateNodeData = useCrewCanvasTab(tabId, (s) => s.updateNodeData)
   const [, forceTick] = useState(0)
 
-  const running = typeof d.endAt === 'number'
-  const remaining = running ? Math.max(0, d.endAt! - Date.now()) : (d.remainingMs ?? 0)
+  const running = typeof d.stopwatchStartedAt === 'number'
+  const storedElapsed = Math.max(0, d.stopwatchElapsedMs ?? 0)
+  const elapsed = running
+    ? storedElapsed + Math.max(0, Date.now() - d.stopwatchStartedAt!)
+    : storedElapsed
 
   useEffect(() => {
     if (!running) {
@@ -25,20 +31,26 @@ export const TimerNode = memo(function TimerNode({ id, data, selected }: NodePro
     return () => clearInterval(tick)
   }, [running])
 
-  useEffect(() => {
-    if (running && remaining <= 0) {
-      updateNodeData(id, { endAt: undefined, remainingMs: 0 })
-    }
-  }, [running, remaining, id, updateNodeData])
+  const totalSeconds = Math.floor(elapsed / 1000)
+  const hours = Math.floor(totalSeconds / 3600)
+  const minutes = Math.floor((totalSeconds % 3600) / 60)
+  const seconds = totalSeconds % 60
+  const display =
+    hours > 0
+      ? `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`
+      : `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`
 
-  const minutes = Math.floor(remaining / 60000)
-  const seconds = Math.floor((remaining % 60000) / 1000)
-  const display = `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`
-
-  const start = (ms: number) =>
-    updateNodeData(id, { endAt: Date.now() + ms, remainingMs: undefined })
-  const pause = () => updateNodeData(id, { endAt: undefined, remainingMs: remaining })
-  const reset = () => updateNodeData(id, { endAt: undefined, remainingMs: 25 * 60_000 })
+  const start = () =>
+    updateNodeData(id, {
+      stopwatchStartedAt: Date.now(),
+      stopwatchElapsedMs: storedElapsed,
+      // Clear countdown data left by builds before the stopwatch migration.
+      endAt: undefined,
+      remainingMs: undefined
+    })
+  const pause = () =>
+    updateNodeData(id, { stopwatchStartedAt: undefined, stopwatchElapsedMs: elapsed })
+  const reset = () => updateNodeData(id, { stopwatchStartedAt: undefined, stopwatchElapsedMs: 0 })
 
   const iconBtn: React.CSSProperties = {
     background: 'rgba(255,255,255,0.06)',
@@ -127,7 +139,7 @@ export const TimerNode = memo(function TimerNode({ id, data, selected }: NodePro
           ) : (
             <button
               type="button"
-              onClick={() => start(remaining > 0 ? remaining : 25 * 60_000)}
+              onClick={start}
               style={iconBtn}
               title={translate('auto.components.canvas.TimerNode.start', 'Start')}
             >
@@ -142,18 +154,6 @@ export const TimerNode = memo(function TimerNode({ id, data, selected }: NodePro
           >
             <RotateCcw size={12} />
           </button>
-        </div>
-        <div style={{ display: 'flex', gap: 5 }}>
-          {[5, 10, 25].map((min) => (
-            <button
-              key={min}
-              type="button"
-              onClick={() => start(min * 60_000)}
-              style={{ ...iconBtn, fontSize: 10, padding: '3px 8px', fontWeight: 600 }}
-            >
-              {min}m
-            </button>
-          ))}
         </div>
       </div>
       <Handle type="target" position={Position.Left} style={{ width: 8, height: 8 }} />

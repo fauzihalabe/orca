@@ -409,6 +409,19 @@ describe('AgentBrowserBridge', () => {
     expect(result).toEqual({ browserPageId: 'tab-1', snapshot: 'tree output' })
   })
 
+  it('acquires native network capture idempotently for a live browser session', async () => {
+    succeedWith({ capturing: true })
+
+    await expect(bridge.captureStart()).resolves.toEqual({ capturing: true })
+    await expect(bridge.captureStart()).resolves.toEqual({ capturing: true })
+
+    const captureCalls = execFileMock.mock.calls.filter((call) => {
+      const args = call[1] as string[]
+      return args.includes('network') && args.includes('har') && args.includes('start')
+    })
+    expect(captureCalls).toHaveLength(1)
+  })
+
   it('routes snapshot to an explicit browser page id without changing the active tab', async () => {
     const tabs = new Map([
       ['tab-a', 1],

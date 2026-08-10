@@ -25,7 +25,7 @@ export const NetworkNode = memo(function NetworkNode({ id, data, selected }: Nod
   void d
   const [entries, setEntries] = useState<NetEntry[]>([])
   const [linked, setLinked] = useState(false)
-  const tabId = useCanvasTab().tabId
+  const { tabId, worktreeId } = useCanvasTab()
 
   useEffect(() => {
     let alive = true
@@ -39,6 +39,7 @@ export const NetworkNode = memo(function NetworkNode({ id, data, selected }: Nod
       if (!browserNode) {
         if (alive) {
           setLinked(false)
+          setEntries([])
         }
         return
       }
@@ -50,10 +51,22 @@ export const NetworkNode = memo(function NetworkNode({ id, data, selected }: Nod
       }
       inFlight = true
       try {
+        const page =
+          typeof browserNode.data.browserPageId === 'string' &&
+          browserNode.data.browserPageId.trim().length > 0
+            ? browserNode.data.browserPageId
+            : canvasBrowserPageId(browserNode.id)
+        const target = {
+          page,
+          ...(worktreeId ? { worktree: worktreeId } : {})
+        }
+        // Native capture acquisition is idempotent. Reasserting it each poll
+        // survives BrowserPane/session replacement without clearing its log.
+        await callRuntimeRpc({ kind: 'local' }, 'browser.capture.start', target)
         const result = await callRuntimeRpc<{ entries?: NetEntry[] }>(
           { kind: 'local' },
           'browser.network',
-          { page: canvasBrowserPageId(browserNode.id), limit: 100 }
+          { ...target, limit: 100 }
         )
         if (alive && Array.isArray(result?.entries)) {
           setEntries([...result.entries].toReversed().slice(0, 40))
@@ -71,7 +84,7 @@ export const NetworkNode = memo(function NetworkNode({ id, data, selected }: Nod
       alive = false
       clearInterval(timer)
     }
-  }, [id, tabId])
+  }, [id, tabId, worktreeId])
 
   return (
     <div

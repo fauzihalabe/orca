@@ -64,7 +64,8 @@ kind or label:
 
 ```text
 ORCA canvas call --tool note.read --node <node-id> --json
-ORCA canvas call --tool terminal.run --node <node-id> --args '{"command":"pwd"}' --json
+ORCA canvas call --tool terminal.send --node <node-id> --args '{"text":"pwd"}' --json
+ORCA canvas call --tool terminal.read --node <node-id> --args '{"cursor":0}' --json
 ORCA canvas call --tool browser.read --node <node-id> --json
 ORCA canvas call --tool simulator.ax --node <node-id> --json
 ORCA canvas call --tool network.read --node <node-id> --json
@@ -84,12 +85,15 @@ ORCA click --page canvas-<browser-node-id> --element <ref> --json
 
 The Canvas aliases `browser.*`, `network.*`, and `simulator.*` dispatch through those
 same native Orca runtimes in the main process, even when the Canvas view is hidden. A
-network node must also be connected to the browser it observes. Terminal nodes use
-Orca's native PTY bridge; notes, todos, and timers are durable main-process Canvas state,
-persisted atomically with a revision fence and guarded by the same edge.
+network node must also be connected to the browser it observes; native capture starts
+automatically. Terminal nodes use stable Orca terminal handles and cursor reads; notes,
+todos, and stopwatch timers are durable main-process Canvas state, persisted atomically
+with a revision fence and guarded by the same edge. Canvas agent-to-agent ask and
+orchestration create native persisted Runs, Tasks, and worker dispatches.
 
-Canvas node calls are live bridge operations; they are not agent-status hooks and do not
-require MCP.
+Canvas node calls are live broker operations, not agent-status hooks. The caller transport
+may be the native CLI or Codex's stdio Canvas MCP, but graph authorization and execution
+always remain in Orca's main-process runtime.
 
 If Orca is not running, start it:
 
