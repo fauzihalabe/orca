@@ -5,7 +5,6 @@ import { RpcDispatcher } from './runtime/rpc/dispatcher'
 import {
   crewCanvasJson,
   crewCanvasText,
-  isCrewCanvasRecord,
   type LocatedCanvasNode
 } from './crew-canvas-graph'
 import type { CrewCanvasStateStore } from './crew-canvas-state'
@@ -156,24 +155,30 @@ export class CrewCanvasNativeTools {
       if (!command.trim()) {
         return 'erro: command/text obrigatório'
       }
-      const sent = await this.dispatch('terminal.send', {
+      await this.dispatch('terminal.send', {
         terminal: handle,
         text: command,
         enter: args.enter !== false
       })
       if (tool === 'terminal.send') {
-        return JSON.stringify(sent)
+        return JSON.stringify({ sent: true })
       }
-      const receipt =
-        isCrewCanvasRecord(sent) && isCrewCanvasRecord(sent.send)
-          ? sent.send
-          : isCrewCanvasRecord(sent)
-            ? sent
-            : { result: sent }
-      return JSON.stringify({
-        ...receipt,
-        output: 'use terminal.read com cursor para acompanhar a saída'
-      })
+      // Why: terminal.run must feel exactly like a native agent's own command
+      // execution — one call, output inline. The wait is ENGINE-side (tui-idle,
+      // the runtime's own prompt/idle detector), so no model cycles burn on
+      // cursor polling; terminal.read stays available for explicit follow-up.
+      const timeoutMs = typeof args.timeoutMs === 'number' ? args.timeoutMs : 60_000
+      try {
+        await this.dispatch('terminal.wait', { terminal: handle, for: 'tui-idle', timeoutMs })
+      } catch {
+        // timeout/stale — fall through and return whatever the screen has
+      }
+      return JSON.stringify(
+        await this.dispatch('terminal.read', {
+          terminal: handle,
+          ...(typeof args.lines === 'number' ? { limit: args.lines } : { limit: 400 })
+        })
+      )
     } catch (error) {
       return `erro no terminal nativo: ${error instanceof Error ? error.message : String(error)}`
     }
