@@ -3,8 +3,7 @@ import type { CodexAccountAddTarget, CodexAccountService } from '../codex-accoun
 import type { CodexAccountSelectionTarget } from '../codex-accounts/runtime-selection'
 import { listRecordedCodexPaneLanes } from '../codex/codex-pane-account-registry'
 import { forgetStaleCodexPanes, listStaleCodexPanes } from '../codex/codex-stale-pane-accounts'
-import type { GlobalSettings } from '../../shared/types'
-import type { CodexRateLimitAccountsState } from '../../shared/types'
+import type { CodexRateLimitAccountsState, GlobalSettings } from '../../shared/types'
 
 function publishCodexAccountsChanged(state: CodexRateLimitAccountsState): void {
   for (const window of BrowserWindow.getAllWindows()) {
