@@ -167,7 +167,17 @@ export async function orchestrateRun(args: {
 }
 
 function labelOf(node: CrewCanvasNode): string {
-  return String(node.data.label ?? node.data.agentKind ?? '')
+  return String(node.data.label ?? node.data.role ?? node.data.agentKind ?? '')
+}
+
+function aliasesOf(node: CrewCanvasNode): string[] {
+  return [node.id, node.data.label, node.data.role, node.data.agentKind]
+    .map((value) =>
+      String(value ?? '')
+        .trim()
+        .toLowerCase()
+    )
+    .filter(Boolean)
 }
 
 // Bridge entrypoint: resolves the caller's worktree + workers (explicit labels
@@ -201,10 +211,12 @@ export async function orchestrateFromCanvas(
   const wantedLabels = (args.workers ?? []).map((label) => label.toLowerCase())
   const targets =
     wantedLabels.length > 0
-      ? connectedAgents.filter((node) => wantedLabels.includes(labelOf(node).toLowerCase()))
+      ? connectedAgents.filter((node) =>
+          wantedLabels.some((label) => aliasesOf(node).includes(label))
+        )
       : connectedAgents
   const missing = wantedLabels.filter(
-    (label) => !targets.some((node) => labelOf(node).toLowerCase() === label)
+    (label) => !targets.some((node) => aliasesOf(node).includes(label))
   )
   if (missing.length > 0) {
     return `erro: workers não conectados a você: ${missing.join(', ')}`

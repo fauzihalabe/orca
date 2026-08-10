@@ -65,6 +65,7 @@ const sleepingAgentLaunchConfigBaseSchema = z.object({
   agentCommand: z.string().optional(),
   agentArgs: z.string(),
   agentEnv: sleepingAgentLaunchEnvSchema,
+  managedAccountId: z.string().trim().min(1).nullable().optional(),
   // Why: AI Vault can scan arbitrary OMP roots, so cold restore must retain
   // the exact provider resume locator instead of reconstructing its store.
   ompResumeFilePath: z

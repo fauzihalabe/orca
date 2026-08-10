@@ -2,6 +2,8 @@ import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 import { useMemo } from 'react'
 import type { Edge, Node, Viewport } from '@xyflow/react'
+import { closeCanvasAgentMirror } from './nodes/canvas-agent-session'
+import { closeCanvasBrowserMirror } from './nodes/canvas-browser-session'
 
 // Crew canvas state — one graph PER CANVAS TAB (keyed by tabId, so each worktree
 // tab owns an independent surface). The 'default' key backs the global
@@ -42,6 +44,12 @@ type CrewCanvasState = {
   removeCanvas: (tabId: string) => void
 }
 
+let removeCanvasFromMain: ((tabId: string) => void) | null = null
+
+export function registerCrewCanvasMainRemoval(handler: (tabId: string) => void): void {
+  removeCanvasFromMain = handler
+}
+
 function patchGraph(
   canvases: Record<string, CrewCanvasGraph>,
   tabId: string,
@@ -51,12 +59,27 @@ function patchGraph(
   return { ...canvases, [tabId]: { ...current, ...patch } }
 }
 
+function closeRemovedAgentMirrors(previous: CrewCanvasNode[], next: CrewCanvasNode[]): void {
+  const nextIds = new Set(next.map((node) => node.id))
+  for (const node of previous) {
+    if (node.data.kind === 'agent' && !nextIds.has(node.id)) {
+      closeCanvasAgentMirror(node.data)
+    }
+    if (node.data.kind === 'browser' && !nextIds.has(node.id)) {
+      closeCanvasBrowserMirror(node.data)
+    }
+  }
+}
+
 export const useCrewCanvas = create<CrewCanvasState>()(
   persist(
     (set) => ({
       canvases: {},
-      setGraph: (tabId, nodes, edges) =>
-        set((s) => ({ canvases: patchGraph(s.canvases, tabId, { nodes, edges }) })),
+      setGraph: (tabId, nodes, edges) => {
+        const previous = useCrewCanvas.getState().canvases[tabId]?.nodes ?? []
+        closeRemovedAgentMirrors(previous, nodes)
+        set((s) => ({ canvases: patchGraph(s.canvases, tabId, { nodes, edges }) }))
+      },
       addNode: (tabId, node) =>
         set((s) => {
           const current = s.canvases[tabId] ?? EMPTY_GRAPH
@@ -64,21 +87,22 @@ export const useCrewCanvas = create<CrewCanvasState>()(
             canvases: patchGraph(s.canvases, tabId, { nodes: [...current.nodes, node] })
           }
         }),
-      removeElements: (tabId, nodeIds, edgeIds) =>
-        set((s) => {
-          const current = s.canvases[tabId] ?? EMPTY_GRAPH
-          return {
-            canvases: patchGraph(s.canvases, tabId, {
-              nodes: current.nodes.filter((n) => !nodeIds.includes(n.id)),
-              edges: current.edges.filter(
-                (e) =>
-                  !edgeIds.includes(e.id) &&
-                  !nodeIds.includes(e.source) &&
-                  !nodeIds.includes(e.target)
-              )
-            })
-          }
-        }),
+      removeElements: (tabId, nodeIds, edgeIds) => {
+        const current = useCrewCanvas.getState().canvases[tabId] ?? EMPTY_GRAPH
+        const nextNodes = current.nodes.filter((n) => !nodeIds.includes(n.id))
+        closeRemovedAgentMirrors(current.nodes, nextNodes)
+        set((s) => ({
+          canvases: patchGraph(s.canvases, tabId, {
+            nodes: nextNodes,
+            edges: current.edges.filter(
+              (e) =>
+                !edgeIds.includes(e.id) &&
+                !nodeIds.includes(e.source) &&
+                !nodeIds.includes(e.target)
+            )
+          })
+        }))
+      },
       updateNodeData: (tabId, nodeId, patch) =>
         set((s) => {
           const current = s.canvases[tabId] ?? EMPTY_GRAPH
@@ -103,17 +127,32 @@ export const useCrewCanvas = create<CrewCanvasState>()(
         set((s) => ({ canvases: patchGraph(s.canvases, tabId, { edgeStyle }) })),
       setViewport: (tabId, viewport) =>
         set((s) => ({ canvases: patchGraph(s.canvases, tabId, { viewport }) })),
-      // Why: closing the canvas tab drops its persisted graph; the overlay
-      // unmount kills the nodes' PTYs via their own effect cleanups.
-      removeCanvas: (tabId) =>
+      // Why: closing the canvas tab drops its persisted graph and retires the
+      // native Orca mirror tabs. The Canvas xterm is only a viewport; native
+      // tab retirement owns PTY teardown.
+      removeCanvas: (tabId) => {
+        const current = useCrewCanvas.getState().canvases[tabId]
+        if (!current) {
+          return
+        }
+        for (const node of current.nodes) {
+          if (node.data.kind === 'agent') {
+            closeCanvasAgentMirror(node.data)
+          }
+          if (node.data.kind === 'browser') {
+            closeCanvasBrowserMirror(node.data)
+          }
+        }
+        removeCanvasFromMain?.(tabId)
         set((s) => {
-          if (!(tabId in s.canvases)) {
-            return {}
+          if (!s.canvases[tabId]) {
+            return s
           }
           const canvases = { ...s.canvases }
           delete canvases[tabId]
           return { canvases }
         })
+      }
     }),
     {
       name: 'crew-canvas',
@@ -185,14 +224,11 @@ export function getCrewCanvas(tabId: string): CrewCanvasTabStore {
 
 /** Reactive tab store — selector runs over the graph + bound actions. */
 export function useCrewCanvasTab<T>(tabId: string, selector: (s: CrewCanvasTabStore) => T): T {
-  // Why: the store selector must return a referentially stable value (the graph
-  // slice itself); building the tab view INSIDE getSnapshot returns a fresh
-  // object per read and loops useSyncExternalStore forever. Actions are stable
-  // zustand refs, so binding once per tabId is safe; the selector result is
-  // computed locally per render, outside the subscription.
-  const graph = useCrewCanvas((s) => s.canvases[tabId] ?? EMPTY_GRAPH)
+  // Bind actions once, then subscribe to the selector RESULT rather than the
+  // whole graph. Browser/terminal nodes that only need an action must not
+  // rerender their native surface for every unrelated drag or edge animation.
   const actions = useMemo(() => boundActions(tabId), [tabId])
-  return selector({ ...graph, ...actions })
+  return useCrewCanvas((s) => selector({ ...(s.canvases[tabId] ?? EMPTY_GRAPH), ...actions }))
 }
 
 // Debug/e2e handle — lets devtools-driving tests address the store directly.

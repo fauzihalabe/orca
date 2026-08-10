@@ -2,27 +2,43 @@ import { useEffect, useRef, useState } from 'react'
 import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import '@xterm/xterm/css/xterm.css'
+import { useAppStore } from '@/store'
+import { singlePaneLayoutSnapshot } from '@/store/slices/terminal-helpers'
+import { FLOATING_TERMINAL_WORKTREE_ID } from '../../../../../shared/constants'
 import { registerAgentPty, unregisterAgentPty } from '../agent-registry'
+import { getCrewCanvas } from '../canvas-store'
 import { attachCrewTermClipboard, attachCrewTermFileDrop } from './crew-term-clipboard'
+import {
+  closeCanvasAgentMirror,
+  ensureCanvasAgentMirror,
+  type CanvasAgentMirror
+} from './canvas-agent-session'
 import { CREW_SPAWN_ENV_TO_DELETE } from '../crew-spawn-env'
+import { subscribeToPtyData } from '@/components/terminal-pane/pty-data-sidecar-subscriptions'
 
-// Shared live-PTY body for canvas nodes (agent, plain terminal). Owns the
-// xterm lifecycle, the visibility gate (mounting under display:none breaks the
-// guest), and the spawn/wire/teardown of the PTY through Orca's pty bridge.
-// The worktreeId anchors the cwd in main's spawn resolver — without it the
-// requested cwd is dropped and the shell lands in $HOME.
+// Plain Canvas terminal — the visible xterm is only a viewport. The native
+// Orca TerminalTab owns the PTY, stable pane identity, persistence and mobile
+// membership, exactly like a terminal opened outside the Canvas.
 export function PtyTerminalView({
   sessionId,
   command,
   cwd,
   worktreeId,
-  registryNodeId
+  registryNodeId,
+  tabId,
+  nodeId,
+  label,
+  onSessionReady
 }: {
   sessionId: string
   command: string
   cwd?: string
   worktreeId?: string | null
   registryNodeId?: string
+  tabId: string
+  nodeId: string
+  label: string
+  onSessionReady: (mirror: CanvasAgentMirror, sessionId?: string) => void
 }) {
   const containerRef = useRef<HTMLDivElement>(null)
   const [spawnError, setSpawnError] = useState<string | null>(null)
@@ -48,6 +64,7 @@ export function PtyTerminalView({
     let disposed = false
     let removeDataListener: (() => void) | null = null
     let livePtyId: string | null = null
+    let mirror: CanvasAgentMirror | null = null
 
     const waitForVisibleSize = () =>
       new Promise<void>((resolve) => {
@@ -64,6 +81,46 @@ export function PtyTerminalView({
         gate.observe(container)
       })
 
+    const attachPty = async (
+      ptyId: string,
+      initial?: { replay?: string; snapshot?: string; coldRestore?: string }
+    ) => {
+      if (disposed) {
+        return
+      }
+      livePtyId = ptyId
+      if (initial?.replay) {
+        term.write(initial.replay)
+      } else if (initial?.snapshot) {
+        term.write(initial.snapshot)
+      } else if (initial?.coldRestore) {
+        term.write(initial.coldRestore)
+      } else {
+        const current = await window.api.pty
+          .getMainBufferSnapshot(ptyId, { scrollbackRows: 5000 })
+          .catch(() => null)
+        if (!disposed && current?.data) {
+          term.write(current.data)
+        }
+      }
+      if (disposed) {
+        return
+      }
+      if (registryNodeId) {
+        registerAgentPty(registryNodeId, ptyId, term)
+      }
+      removeDataListener = subscribeToPtyData(ptyId, (chunk) => {
+        if (!disposed) {
+          term.write(chunk)
+        }
+      })
+      term.onData((input) => {
+        if (livePtyId) {
+          window.api.pty.write(livePtyId, input)
+        }
+      })
+    }
+
     const spawn = async () => {
       try {
         await waitForVisibleSize()
@@ -71,51 +128,66 @@ export function PtyTerminalView({
           return
         }
         fit.fit()
+        const nodeData = (getCrewCanvas(tabId).nodes.find((node) => node.id === nodeId)?.data ??
+          {}) as Record<string, unknown>
+        const nativeWorktreeId = worktreeId ?? FLOATING_TERMINAL_WORKTREE_ID
+        mirror = await ensureCanvasAgentMirror({
+          worktreeId: nativeWorktreeId,
+          label,
+          data: nodeData
+        })
+        onSessionReady(mirror)
+        if (mirror.reusedExistingPty && mirror.ptyId) {
+          await attachPty(mirror.ptyId)
+          return
+        }
+
         const dims = fit.proposeDimensions()
         const spawnOpts = (id: string) => ({
           cols: dims?.cols ?? 80,
           rows: dims?.rows ?? 24,
           command: command || undefined,
           cwd: cwd || undefined,
-          ...(worktreeId ? { worktreeId } : {}),
+          worktreeId: nativeWorktreeId,
           envToDelete: CREW_SPAWN_ENV_TO_DELETE,
           sessionId: id,
-          initiallyHidden: false
+          initiallyHidden: false,
+          tabId: mirror!.tabId,
+          leafId: mirror!.leafId
         })
+        let durableSessionId =
+          typeof nodeData.ptySessionId === 'string' && nodeData.ptySessionId.trim().length > 0
+            ? nodeData.ptySessionId
+            : sessionId
         let spawned
         try {
-          spawned = await window.api.pty.spawn(spawnOpts(sessionId))
+          spawned = await window.api.pty.spawn(spawnOpts(durableSessionId))
         } catch (firstError) {
-          // Why: after an intentional kill (tab close, remount) the stable id is
-          // dead — spawning onto it throws TerminalKilledError; take a fresh id.
           const message = firstError instanceof Error ? firstError.message : String(firstError)
           if (!/killed|not.?found|no such/i.test(message)) {
             throw firstError
           }
-          spawned = await window.api.pty.spawn(spawnOpts(`${sessionId}-${Date.now()}`))
+          durableSessionId = `${sessionId}-recovery-${Date.now()}`
+          spawned = await window.api.pty.spawn(spawnOpts(durableSessionId))
         }
         if (disposed) {
           return
         }
-        livePtyId = spawned.id
-        if (registryNodeId) {
-          registerAgentPty(registryNodeId, spawned.id, term)
-        }
-        if (spawned.replay) {
-          term.write(spawned.replay)
-        }
-        removeDataListener = window.api.pty.onData((event) => {
-          if (event.id === livePtyId) {
-            term.write(event.data)
-          }
-        })
-        term.onData((input) => {
-          if (livePtyId) {
-            window.api.pty.write(livePtyId, input)
-          }
+        useAppStore.getState().updateTabPtyId(mirror.tabId, spawned.id)
+        useAppStore
+          .getState()
+          .setTabLayout(mirror.tabId, singlePaneLayoutSnapshot(mirror.leafId, spawned.id))
+        onSessionReady({ ...mirror, ptyId: spawned.id }, durableSessionId)
+        await attachPty(spawned.id, {
+          replay: spawned.replay,
+          snapshot: spawned.snapshot,
+          coldRestore: spawned.coldRestore?.scrollback
         })
       } catch (error) {
         if (!disposed) {
+          if (mirror && !mirror.reusedExistingPty && !livePtyId) {
+            closeCanvasAgentMirror(mirror)
+          }
           setSpawnError(error instanceof Error ? error.message : String(error))
         }
       }
@@ -127,6 +199,10 @@ export function PtyTerminalView({
 
     const observer = new ResizeObserver(() => {
       fit.fit()
+      const dims = fit.proposeDimensions()
+      if (dims && livePtyId) {
+        window.api.pty.resize(livePtyId, dims.cols, dims.rows)
+      }
     })
     observer.observe(container)
 
@@ -135,15 +211,14 @@ export function PtyTerminalView({
       observer.disconnect()
       detachFileDrop()
       removeDataListener?.()
-      if (livePtyId) {
-        if (registryNodeId) {
-          unregisterAgentPty(registryNodeId, livePtyId)
-        }
-        void window.api.pty.kill(livePtyId)
+      if (livePtyId && registryNodeId) {
+        unregisterAgentPty(registryNodeId, livePtyId)
       }
+      // Do not kill here: native TerminalTab owns the PTY. Explicit Canvas
+      // node deletion closes that tab through canvas-store cleanup.
       term.dispose()
     }
-  }, [sessionId, command, cwd, worktreeId, registryNodeId])
+  }, [command, cwd, label, nodeId, onSessionReady, registryNodeId, sessionId, tabId, worktreeId])
 
   return (
     <div

@@ -9,6 +9,7 @@ import {
   isShellProcess,
   normalizeTerminalTitle
 } from '../../shared/agent-detection'
+import type { CrewCanvasRuntimeRequest } from '../../shared/crew-canvas'
 import { extractOscTitleScanTail } from '../../shared/osc-title-scan-tail'
 import { sortDirEntries } from '../../shared/file-name-sort'
 import { isServerDriveListRequest, listWindowsDrives } from './windows-drive-listing'
@@ -1407,6 +1408,7 @@ function copySleepingAgentLaunchConfig(
     ...(config.agentCommand ? { agentCommand: config.agentCommand } : {}),
     agentArgs: config.agentArgs,
     agentEnv: { ...config.agentEnv },
+    ...(config.managedAccountId !== undefined ? { managedAccountId: config.managedAccountId } : {}),
     ...(config.ompResumeFilePath ? { ompResumeFilePath: config.ompResumeFilePath } : {})
   }
 }
@@ -1619,6 +1621,7 @@ type RuntimePtyController = {
     cwd?: string
     command?: string
     launchAgent?: TuiAgent
+    launchConfig?: SleepingAgentLaunchConfig
     commandDelivery?: 'renderer' | 'provider'
     startupCommandDelivery?: WorktreeStartupLaunch['startupCommandDelivery']
     env?: Record<string, string>
@@ -2901,6 +2904,9 @@ export class OrcaRuntimeService {
   private waitersByHandle = new Map<string, Set<TerminalWaiter>>()
   private ptyController: RuntimePtyController | null = null
   private notifier: RuntimeNotifier | null = null
+  private crewCanvasRequestHandler:
+    | ((request: CrewCanvasRuntimeRequest) => Promise<string>)
+    | null = null
   private clientEventListeners = new Set<(event: RuntimeClientEvent) => void>()
   // Why: mobile subscribers discard terminalSideEffects; exclude them from batch delivery and production.
   private terminalSideEffectExcludedClientEventListeners = new Set<
@@ -5049,6 +5055,19 @@ export class OrcaRuntimeService {
       this.forkBackfillStarted = true
       void this.backfillForkUpstreams()
     }
+  }
+
+  setCrewCanvasRequestHandler(
+    handler: ((request: CrewCanvasRuntimeRequest) => Promise<string>) | null
+  ): void {
+    this.crewCanvasRequestHandler = handler
+  }
+
+  async invokeCrewCanvas(request: CrewCanvasRuntimeRequest): Promise<string> {
+    if (!this.crewCanvasRequestHandler) {
+      throw new Error('canvas_runtime_unavailable')
+    }
+    return await this.crewCanvasRequestHandler(request)
   }
 
   onClientEvent(
@@ -25500,6 +25519,7 @@ export class OrcaRuntimeService {
               ? launchOpts.command
               : (agentTeamsPlan?.command ?? launchOpts.command),
             launchAgent: launchOpts.launchAgent,
+            ...(effectiveLaunchConfig ? { launchConfig: effectiveLaunchConfig } : {}),
             commandDelivery: 'provider',
             startupCommandDelivery: launchOpts.startupCommandDelivery,
             env,

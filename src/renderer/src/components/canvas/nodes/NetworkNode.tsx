@@ -5,46 +5,21 @@ import type { CrewCanvasNodeData } from '../canvas-store'
 import { getCrewCanvas } from '../canvas-store'
 import { useCanvasTab } from '../canvas-tab-context'
 import { translate } from '@/i18n/i18n'
+import { callRuntimeRpc } from '@/runtime/runtime-rpc-client'
+import { canvasBrowserPageId } from './canvas-browser-session'
 
-type NetEntry = { method: string; url: string; status: number; ms: number }
-
-// Collector injected into the connected browser node's guest: wraps fetch and
-// XHR, keeps the last 100 requests on window.__crewNet.
-const COLLECTOR_JS = `
-(() => {
-  if (window.__crewNet) return 'already'
-  const entries = []
-  window.__crewNet = entries
-  const push = (e) => { entries.push(e); if (entries.length > 100) entries.shift() }
-  const ofetch = window.fetch
-  window.fetch = async (input, init) => {
-    const method = (init && init.method) || (typeof input === 'object' && input && input.method) || 'GET'
-    const url = typeof input === 'string' ? input : (input && input.url) || ''
-    const t0 = performance.now()
-    try {
-      const res = await ofetch(input, init)
-      push({ method, url, status: res.status, ms: Math.round(performance.now() - t0) })
-      return res
-    } catch (err) {
-      push({ method, url, status: 0, ms: Math.round(performance.now() - t0) })
-      throw err
-    }
-  }
-  const oopen = XMLHttpRequest.prototype.open
-  const osend = XMLHttpRequest.prototype.send
-  XMLHttpRequest.prototype.open = function (method, url) { this.__crewM = method; this.__crewU = url; return oopen.apply(this, arguments) }
-  XMLHttpRequest.prototype.send = function () {
-    const t0 = performance.now()
-    this.addEventListener('loadend', () => push({ method: this.__crewM || 'GET', url: this.__crewU || '', status: this.status, ms: Math.round(performance.now() - t0) }))
-    return osend.apply(this, arguments)
-  }
-  return 'installed'
-})()
-`
+type NetEntry = {
+  method: string
+  url: string
+  status: number
+  mimeType: string
+  size: number
+  timestamp: number
+}
 
 // Network/DevTools node — watches the live traffic of the connected browser
-// node (edge browser→network). Polls the injected collector and renders the
-// last requests devtools-style.
+// node (edge browser→network). It polls Orca's native browser.network RPC;
+// there is no injected collector in the page.
 export const NetworkNode = memo(function NetworkNode({ id, data, selected }: NodeProps) {
   const d = data as CrewCanvasNodeData
   void d
@@ -54,6 +29,7 @@ export const NetworkNode = memo(function NetworkNode({ id, data, selected }: Nod
 
   useEffect(() => {
     let alive = true
+    let inFlight = false
     const poll = async () => {
       const graph = getCrewCanvas(tabId)
       const browserNode = graph.edges
@@ -69,19 +45,24 @@ export const NetworkNode = memo(function NetworkNode({ id, data, selected }: Nod
       if (alive) {
         setLinked(true)
       }
-      const host = document.querySelector(`[data-id="${browserNode.id}"]`)
-      const wv = host?.querySelector('webview') as Electron.WebviewTag | null | undefined
-      if (!wv) {
+      if (inFlight) {
         return
       }
+      inFlight = true
       try {
-        await wv.executeJavaScript(COLLECTOR_JS)
-        const got = (await wv.executeJavaScript('window.__crewNet || []')) as NetEntry[]
-        if (alive && Array.isArray(got)) {
-          setEntries([...got].toReversed().slice(0, 40))
+        const result = await callRuntimeRpc<{ entries?: NetEntry[] }>(
+          { kind: 'local' },
+          'browser.network',
+          { page: canvasBrowserPageId(browserNode.id), limit: 100 }
+        )
+        if (alive && Array.isArray(result?.entries)) {
+          setEntries([...result.entries].toReversed().slice(0, 40))
         }
       } catch {
-        // guest not ready yet — next poll
+        // Native browser runtime may still be registering the Canvas page.
+        // The next poll retries without changing the node state.
+      } finally {
+        inFlight = false
       }
     }
     const timer = setInterval(() => void poll(), 2000)
@@ -198,7 +179,9 @@ export const NetworkNode = memo(function NetworkNode({ id, data, selected }: Nod
               >
                 {entry.url.replace(/^[a-z]+:\/\//i, '').slice(0, 60)}
               </span>
-              <span style={{ color: 'rgba(255,255,255,0.3)', flexShrink: 0 }}>{entry.ms}</span>
+              <span style={{ color: 'rgba(255,255,255,0.3)', flexShrink: 0 }}>
+                {entry.size > 0 ? `${entry.size}b` : entry.mimeType || '—'}
+              </span>
             </div>
           ))
         )}

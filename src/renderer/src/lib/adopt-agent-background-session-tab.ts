@@ -1,10 +1,11 @@
 import { useAppStore } from '@/store'
-import { makePaneKey, type PaneKey } from '../../../shared/stable-pane-id'
+import { makePaneKey, parsePaneKey, type PaneKey } from '../../../shared/stable-pane-id'
 import type { AgentType } from '../../../shared/agent-status-types'
 import { bindAutomationTerminal } from '@/lib/automation-terminal-ownership'
 import { createBrowserUuid } from '@/lib/browser-uuid'
 import { retireProvider, retireUnownedTerminal } from '@/lib/retire-unowned-background-terminal'
 import { isTerminalTabPresent } from '@/store/slices/terminal-tab-retirement'
+import { singlePaneLayoutSnapshot } from '@/store/slices/terminal-helpers'
 import type { RuntimeClientTarget } from '@/runtime/runtime-rpc-client'
 
 type Store = ReturnType<typeof useAppStore.getState>
@@ -15,6 +16,7 @@ export function reserveAgentBackgroundSessionIdentity(args: {
   store: Store
   agentType: AgentType
   worktreeId: string
+  nativeTab?: { tabId: string; leafId: string; paneKey: string }
   launchConfig: RegisterArgs[1]
   env: Record<string, string> | undefined
 }): {
@@ -25,9 +27,12 @@ export function reserveAgentBackgroundSessionIdentity(args: {
   launchRegistration: NonNullable<RegisterArgs[2]>
   paneEnv: Record<string, string>
 } {
-  const reservedTabId = createBrowserUuid()
-  const leafId = createBrowserUuid()
+  const reservedTabId = args.nativeTab?.tabId ?? createBrowserUuid()
+  const leafId = args.nativeTab?.leafId ?? createBrowserUuid()
   const paneKey = makePaneKey(reservedTabId, leafId)
+  if (args.nativeTab && args.nativeTab.paneKey !== paneKey) {
+    throw new Error('Canvas native tab identity does not match its pane key')
+  }
   const launchToken = createBrowserUuid()
   const launchRegistration = {
     agentType: args.agentType,
@@ -64,6 +69,7 @@ export async function adoptAgentBackgroundSessionTab(args: {
   runtimeTarget: RuntimeClientTarget
   runtimeTerminalHandle: string | null
   onRetire: () => void
+  reuseExistingTab?: boolean
   title?: string
 }): Promise<{
   tab: ReturnType<Store['createTab']>
@@ -82,6 +88,45 @@ export async function adoptAgentBackgroundSessionTab(args: {
     })
   ) {
     return null
+  }
+  if (args.reuseExistingTab) {
+    const tab = Object.values(useAppStore.getState().tabsByWorktree)
+      .flat()
+      .find(
+        (candidate) => candidate.id === reservedTabId && candidate.worktreeId === args.worktreeId
+      )
+    if (!tab) {
+      store.clearAgentLaunchConfig(args.paneKey)
+      args.onRetire()
+      await retireProvider({
+        ptyId,
+        runtimeTarget: args.runtimeTarget,
+        runtimeTerminalHandle: args.runtimeTerminalHandle
+      })
+      return null
+    }
+    const leafId = launchRegistration.leafId ?? parsePaneKey(args.paneKey)?.leafId
+    if (!leafId) {
+      store.clearAgentLaunchConfig(args.paneKey)
+      args.onRetire()
+      await retireProvider({
+        ptyId,
+        runtimeTarget: args.runtimeTarget,
+        runtimeTerminalHandle: args.runtimeTerminalHandle
+      })
+      return null
+    }
+    store.updateTabPtyId(tab.id, ptyId)
+    store.setTabLayout(tab.id, singlePaneLayoutSnapshot(leafId, ptyId))
+    store.registerAgentLaunchConfig(args.paneKey, args.launchConfig, launchRegistration)
+    const terminalOwnership = bindAutomationTerminal(
+      tab,
+      args.paneKey,
+      ptyId,
+      args.runtimeTarget.kind,
+      args.title
+    )
+    return { tab, paneKey: args.paneKey, terminalOwnership }
   }
   // Re-keying would desynchronize env-baked routing identities; fail closed.
   if (isTerminalTabPresent(useAppStore.getState(), reservedTabId)) {

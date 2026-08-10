@@ -1217,6 +1217,9 @@ function getLocalOrcaCodexHomeEnvKeysToDelete(env: Record<string, string>): stri
 export type CodexHomeLaunchContext = {
   workspacePath?: string
   launchAgent?: TuiAgent
+  /** Explicit Orca-managed account pinned by the native launch config.
+   *  Undefined follows the selected runtime account; null means system default. */
+  managedAccountId?: string | null
   unavailableManagedHomePath?: string
 }
 
@@ -4451,6 +4454,11 @@ export function registerPtyHandlers(
         cwd,
         expectedWslDistro
       )
+      const pinnedManagedAccountId =
+        args.launchConfig &&
+        Object.prototype.hasOwnProperty.call(args.launchConfig, 'managedAccountId')
+          ? args.launchConfig.managedAccountId
+          : undefined
       const codexResumePreparation = preAdoptedStablePane
         ? null
         : prepareCodexResumeHome({
@@ -4527,13 +4535,19 @@ export function registerPtyHandlers(
                       codexSelectionTarget,
                       getSelectedCodexHomePath?.(codexSelectionTarget, env, {
                         workspacePath: cwd,
-                        launchAgent: isTuiAgent(args.launchAgent) ? args.launchAgent : undefined
+                        launchAgent: isTuiAgent(args.launchAgent) ? args.launchAgent : undefined,
+                        ...(pinnedManagedAccountId !== undefined
+                          ? { managedAccountId: pinnedManagedAccountId }
+                          : {})
                       }) ?? null
                     )
                   )
                 : (getSelectedCodexHomePath?.(codexSelectionTarget, env, {
                     workspacePath: cwd,
-                    launchAgent: isTuiAgent(args.launchAgent) ? args.launchAgent : undefined
+                    launchAgent: isTuiAgent(args.launchAgent) ? args.launchAgent : undefined,
+                    ...(pinnedManagedAccountId !== undefined
+                      ? { managedAccountId: pinnedManagedAccountId }
+                      : {})
                   }) ?? null)
             )
           : null
@@ -4552,7 +4566,10 @@ export function registerPtyHandlers(
               codexSelectionTarget,
               getSelectedCodexHomePath?.(codexSelectionTarget, env, {
                 workspacePath: cwd,
-                launchAgent: 'codex'
+                launchAgent: 'codex',
+                ...(pinnedManagedAccountId !== undefined
+                  ? { managedAccountId: pinnedManagedAccountId }
+                  : {})
               }) ?? null
             ),
           resolveAfterUnavailable: (unavailableManagedHomePath) =>
@@ -4561,6 +4578,9 @@ export function registerPtyHandlers(
               getSelectedCodexHomePath?.(codexSelectionTarget, env, {
                 workspacePath: cwd,
                 launchAgent: 'codex',
+                ...(pinnedManagedAccountId !== undefined
+                  ? { managedAccountId: pinnedManagedAccountId }
+                  : {}),
                 unavailableManagedHomePath
               }) ?? null
             )
@@ -5108,7 +5128,7 @@ export function registerPtyHandlers(
           ptyId: result.id,
           isDaemonHostSpawn,
           isReattach: result.isReattach === true,
-          pinnedByResume: codexResumeHomeSelected,
+          pinnedByResume: codexResumeHomeSelected || pinnedManagedAccountId !== undefined,
           launchCodexHomePath: selectedCodexHomePath,
           launchEnv: args.env,
           target: codexSelectionTarget,
@@ -5998,6 +6018,11 @@ export function registerPtyHandlers(
           cwd,
           expectedWslDistro
         )
+        const pinnedManagedAccountId =
+          effectiveLaunchConfig &&
+          Object.prototype.hasOwnProperty.call(effectiveLaunchConfig, 'managedAccountId')
+            ? effectiveLaunchConfig.managedAccountId
+            : undefined
         const codexResumePreparation = preAdoptedStablePane
           ? null
           : prepareCodexResumeHome({
@@ -6027,13 +6052,19 @@ export function registerPtyHandlers(
                         codexSelectionTarget,
                         getSelectedCodexHomePath?.(codexSelectionTarget, baseEnv, {
                           workspacePath: cwd,
-                          launchAgent: isTuiAgent(args.launchAgent) ? args.launchAgent : undefined
+                          launchAgent: isTuiAgent(args.launchAgent) ? args.launchAgent : undefined,
+                          ...(pinnedManagedAccountId !== undefined
+                            ? { managedAccountId: pinnedManagedAccountId }
+                            : {})
                         }) ?? null
                       )
                     )
                   : (getSelectedCodexHomePath?.(codexSelectionTarget, baseEnv, {
                       workspacePath: cwd,
-                      launchAgent: isTuiAgent(args.launchAgent) ? args.launchAgent : undefined
+                      launchAgent: isTuiAgent(args.launchAgent) ? args.launchAgent : undefined,
+                      ...(pinnedManagedAccountId !== undefined
+                        ? { managedAccountId: pinnedManagedAccountId }
+                        : {})
                     }) ?? null)
               )
             : null
@@ -6048,7 +6079,10 @@ export function registerPtyHandlers(
                 codexSelectionTarget,
                 getSelectedCodexHomePath?.(codexSelectionTarget, baseEnv, {
                   workspacePath: cwd,
-                  launchAgent: 'codex'
+                  launchAgent: 'codex',
+                  ...(pinnedManagedAccountId !== undefined
+                    ? { managedAccountId: pinnedManagedAccountId }
+                    : {})
                 }) ?? null
               ),
             resolveAfterUnavailable: (unavailableManagedHomePath) =>
@@ -6057,6 +6091,9 @@ export function registerPtyHandlers(
                 getSelectedCodexHomePath?.(codexSelectionTarget, baseEnv, {
                   workspacePath: cwd,
                   launchAgent: 'codex',
+                  ...(pinnedManagedAccountId !== undefined
+                    ? { managedAccountId: pinnedManagedAccountId }
+                    : {}),
                   unavailableManagedHomePath
                 }) ?? null
               )
@@ -6442,7 +6479,7 @@ export function registerPtyHandlers(
           ptyId: result.id,
           isDaemonHostSpawn,
           isReattach: result.isReattach === true,
-          pinnedByResume: codexResumeHomeSelected,
+          pinnedByResume: codexResumeHomeSelected || pinnedManagedAccountId !== undefined,
           launchCodexHomePath: selectedCodexHomePath,
           launchEnv: baseEnv,
           target: codexSelectionTarget,

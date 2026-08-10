@@ -61,6 +61,9 @@ import {
 import { buildValidWorktreeIdsForSessionHydration } from './degraded-repo-worktree-validity'
 
 type CreateBrowserTabOptions = {
+  /** Optional stable ids for renderer surfaces that are backed by another native Orca node. */
+  id?: string
+  pageId?: string
   activate?: boolean
   title?: string
   sessionProfileId?: string | null
@@ -353,11 +356,12 @@ function buildBrowserPage(
   worktreeId: string,
   url: string,
   title?: string,
-  browserRuntimeEnvironmentId?: string | null
+  browserRuntimeEnvironmentId?: string | null,
+  pageId?: string
 ): BrowserPage {
   const normalizedUrl = normalizeUrl(url)
   return {
-    id: createBrowserUuid(),
+    id: pageId ?? createBrowserUuid(),
     workspaceId,
     worktreeId,
     url: normalizedUrl,
@@ -560,13 +564,21 @@ export const createBrowserSlice: StateCreator<AppState, [], [], BrowserSlice> = 
   },
 
   createBrowserTab: (worktreeId, url, options) => {
-    const workspaceId = createBrowserUuid()
+    const requestedWorkspaceId = options?.id?.trim()
+    if (requestedWorkspaceId) {
+      const existing = findWorkspace(get().browserTabsByWorktree, requestedWorkspaceId)
+      if (existing) {
+        return existing
+      }
+    }
+    const workspaceId = requestedWorkspaceId || createBrowserUuid()
     const page = buildBrowserPage(
       workspaceId,
       worktreeId,
       url,
       options?.title,
-      options?.browserRuntimeEnvironmentId
+      options?.browserRuntimeEnvironmentId,
+      options?.pageId
     )
     // Why: with no explicit profile, inherit the user's default so a Settings preference applies to new tabs.
     const sessionProfileId =

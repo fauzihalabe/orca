@@ -1,240 +1,254 @@
-import { memo, useEffect, useRef, useState } from 'react'
+import { memo, useLayoutEffect, useRef } from 'react'
 import { Handle, NodeResizer, Position, type NodeProps } from '@xyflow/react'
-import { Globe, Monitor, RefreshCw, Smartphone, Crosshair } from 'lucide-react'
-import { ORCA_BROWSER_GUEST_WEB_PREFERENCES_ATTRIBUTE } from '../../../../../shared/browser-guest-web-preferences'
-import { ORCA_BROWSER_PARTITION } from '../../../../../shared/constants'
+import { Globe } from 'lucide-react'
+import { translate } from '@/i18n/i18n'
+import BrowserPane from '@/components/browser-pane/BrowserPane'
+import {
+  registerBrowserOverlaySlotViewport,
+  unregisterBrowserOverlaySlotViewport
+} from '@/components/browser-pane/browser-page-viewport'
+import { useAppStore } from '@/store'
+import { FLOATING_TERMINAL_WORKTREE_ID } from '../../../../../shared/constants'
+import { getBrowserViewportPreset } from '../../../../../shared/browser-viewport-presets'
+import type { BrowserWorkspace } from '../../../../../shared/types'
 import type { CrewCanvasNodeData } from '../canvas-store'
 import { getCrewCanvas, useCrewCanvasTab } from '../canvas-store'
 import { useCanvasTab } from '../canvas-tab-context'
-import { agentPtyOf } from '../agent-registry'
-import { translate } from '@/i18n/i18n'
-
-const MOBILE_UA =
-  'Mozilla/5.0 (iPhone; CPU iPhone OS 18_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.5 Mobile/15E148 Safari/604.1'
+import {
+  canvasBrowserPageId,
+  canvasBrowserWorkspaceId,
+  waitForNativeBrowserSessionHydration
+} from './canvas-browser-session'
 
 function ensureScheme(raw: string): string {
   const trimmed = raw.trim()
   if (!trimmed) {
-    return ''
+    return 'about:blank'
   }
-  return /^[a-z]+:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`
+  // Preserve native non-HTTP URLs such as about:blank; the Orca browser store
+  // is the normalization boundary for the complete browser URL grammar.
+  return /^[a-z][a-z\d+.-]*:/i.test(trimmed) ? trimmed : `https://${trimmed}`
 }
 
-// Element-picker injected into the guest: hover outlines, click captures
-// selector + text, then the note goes to the connected agent's terminal.
-const PICKER_JS = `
-(() => {
-  if (window.__crewPicker) return 'already'
-  window.__crewPicker = true
-  let current = null
-  const box = document.createElement('div')
-  box.style.cssText = 'position:fixed;z-index:2147483647;pointer-events:none;border:2px solid #4d8dff;background:rgba(77,141,255,0.12);border-radius:4px;display:none'
-  document.documentElement.appendChild(box)
-  const onMove = (e) => {
-    const el = document.elementFromPoint(e.clientX, e.clientY)
-    if (!el || el === box) return
-    current = el
-    const r = el.getBoundingClientRect()
-    box.style.display = 'block'
-    box.style.left = r.left + 'px'; box.style.top = r.top + 'px'
-    box.style.width = r.width + 'px'; box.style.height = r.height + 'px'
-  }
-  const selectorOf = (el) => {
-    if (el.id) return '#' + el.id
-    const parts = []
-    let node = el
-    while (node && node !== document.body && parts.length < 5) {
-      let part = node.tagName.toLowerCase()
-      if (node.className && typeof node.className === 'string') {
-        const cls = node.className.trim().split(/\\s+/).slice(0, 2).join('.')
-        if (cls) part += '.' + cls
-      }
-      parts.unshift(part)
-      node = node.parentElement
-    }
-    return parts.join(' > ')
-  }
-  const onClick = (e) => {
-    e.preventDefault(); e.stopPropagation()
-    const el = current
-    if (el) {
-      const text = (el.innerText || el.value || el.alt || '').trim().slice(0, 280)
-      window.__crewPicked = JSON.stringify({ selector: selectorOf(el), tag: el.tagName.toLowerCase(), text, url: location.href })
-    } else {
-      window.__crewPicked = 'cancelled'
-    }
-    cleanup()
-  }
-  const cleanup = () => {
-    window.__crewPicker = false
-    document.removeEventListener('mousemove', onMove, true)
-    document.removeEventListener('click', onClick, true)
-    box.remove()
-  }
-  document.addEventListener('mousemove', onMove, true)
-  document.addEventListener('click', onClick, true)
-  return 'armed'
-})()
-`
-
-// Browser node — a real Chromium guest (Orca's webview engine). Mobile toggle
-// switches UA + narrows the viewport; the crosshair arms element-picking and
-// sends the note to the connected agent node's terminal.
+/**
+ * A Canvas browser is the native Orca BrowserPane mounted inside a node.
+ *
+ * There is intentionally no second webview implementation here. The native
+ * pane owns the Chromium guest, browser profiles, navigation history, grab /
+ * annotate / markup, DevTools, downloads, viewport emulation and all browser
+ * RPC registration. The Canvas only supplies a stable workspace/page id and
+ * a layout container.
+ */
 export const BrowserNode = memo(function BrowserNode({ id, data, selected }: NodeProps) {
   const d = data as CrewCanvasNodeData & {
     url?: string
-    mobile?: boolean
-    desktopSize?: { width: number; height: number }
+    browserWorkspaceId?: string
+    browserPageId?: string
+    browserDesktopSize?: { width?: number; height?: number }
+    browserAppliedViewportPresetId?: string | null
   }
-  const tabId = useCanvasTab().tabId
+  const { tabId, worktreeId, active } = useCanvasTab()
   const updateNodeData = useCrewCanvasTab(tabId, (s) => s.updateNodeData)
-  const [urlInput, setUrlInput] = useState(d.url ?? '')
-  const [picking, setPicking] = useState(false)
-  const containerRef = useRef<HTMLDivElement>(null)
-  const webviewRef = useRef<Electron.WebviewTag | null>(null)
-  const readyRef = useRef(false)
+  const resizeNode = useCrewCanvasTab(tabId, (s) => s.resizeNode)
+  const nativeWorktreeId = worktreeId ?? FLOATING_TERMINAL_WORKTREE_ID
+  const stableWorkspaceId = d.browserWorkspaceId ?? canvasBrowserWorkspaceId(id)
+  const stablePageId = d.browserPageId ?? canvasBrowserPageId(id)
+  const slotRef = useRef<HTMLDivElement | null>(null)
 
-  useEffect(() => {
-    const container = containerRef.current
-    if (!container) {
-      return
-    }
-    let webview: Electron.WebviewTag | null = null
-    let disposed = false
-
-    // A webview created under display:none never boots its guest process
-    // (Electron quirk) — wait until the node is actually visible to attach.
-    const mount = () => {
-      if (disposed || webview) {
+  const browserWorkspace = useAppStore((state) =>
+    Object.values(state.browserTabsByWorktree)
+      .flat()
+      .find((candidate) => candidate.id === stableWorkspaceId)
+  )
+  const browserWorkspaceForPane = browserWorkspace as BrowserWorkspace | undefined
+  const browserWorkspaceIdForPane = browserWorkspaceForPane?.id
+  const activeBrowserPage = useAppStore((state) => {
+    const pages = state.browserPagesByWorkspace[stableWorkspaceId] ?? []
+    return (
+      pages.find((page) => page.id === browserWorkspaceForPane?.activePageId) ?? pages[0] ?? null
+    )
+  })
+  const viewportPresetId = activeBrowserPage?.viewportPresetId ?? null
+  const setBrowserPageViewportPreset = useAppStore((state) => state.setBrowserPageViewportPreset)
+  useLayoutEffect(() => {
+    let cancelled = false
+    const reconcile = async () => {
+      let state = useAppStore.getState()
+      let existing = Object.values(state.browserTabsByWorktree)
+        .flat()
+        .find((candidate) => candidate.id === stableWorkspaceId)
+      // A persisted Canvas node can paint before native browser session
+      // hydration. Wait for that identity once, otherwise a second workspace
+      // would be created and the restored guest would win later.
+      if (!existing && (d.browserWorkspaceId || d.browserPageId) && !state.workspaceSessionReady) {
+        await waitForNativeBrowserSessionHydration()
+        if (cancelled) {
+          return
+        }
+        state = useAppStore.getState()
+        existing = Object.values(state.browserTabsByWorktree)
+          .flat()
+          .find((candidate) => candidate.id === stableWorkspaceId)
+      }
+      if (cancelled) {
         return
       }
-      const wv = document.createElement('webview') as Electron.WebviewTag
-      wv.setAttribute('partition', ORCA_BROWSER_PARTITION)
-      wv.setAttribute('webpreferences', ORCA_BROWSER_GUEST_WEB_PREFERENCES_ATTRIBUTE)
-      wv.style.display = 'flex'
-      wv.style.width = '100%'
-      wv.style.height = '100%'
-      wv.style.border = 'none'
-      wv.style.background = '#fff'
-      wv.addEventListener('dom-ready', () => {
-        readyRef.current = true
-        if (getCrewCanvas(tabId).nodes.find((n) => n.id === id)?.data.mobile) {
-          wv.setUserAgent(MOBILE_UA)
-        }
-      })
-      // src BEFORE attach: Orca's will-attach-webview guard reads params.src
-      // at attach time and fail-closes on an empty one.
-      if (d.url) {
-        wv.setAttribute('src', d.url)
+      const workspace =
+        existing ??
+        state.createBrowserTab(nativeWorktreeId, ensureScheme(d.url ?? ''), {
+          id: stableWorkspaceId,
+          pageId: stablePageId,
+          activate: false,
+          title: translate('auto.components.canvas.BrowserNode.title', 'Canvas Browser')
+        })
+      const pageId = workspace.activePageId ?? workspace.pageIds?.[0] ?? stablePageId
+      const patch: Record<string, unknown> = {
+        browserWorkspaceId: workspace.id,
+        browserPageId: pageId
       }
-      container.appendChild(wv)
-      webview = wv
-      webviewRef.current = wv
-    }
-
-    if (container.clientHeight > 0) {
-      mount()
-    } else {
-      const gate = new ResizeObserver(() => {
-        if (container.clientHeight > 0) {
-          gate.disconnect()
-          mount()
-        }
-      })
-      gate.observe(container)
-      return () => {
-        disposed = true
-        gate.disconnect()
+      if (d.url !== workspace.url && workspace.url !== 'about:blank') {
+        patch.url = workspace.url
       }
+      updateNodeData(id, patch)
     }
-
+    void reconcile()
     return () => {
-      disposed = true
-      webviewRef.current = null
-      webview?.remove()
+      cancelled = true
     }
-    // mount once per node — url/mobile changes go through live calls below
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [id])
+  }, [
+    d.browserPageId,
+    d.browserWorkspaceId,
+    d.url,
+    id,
+    nativeWorktreeId,
+    stablePageId,
+    stableWorkspaceId,
+    updateNodeData
+  ])
 
-  useEffect(() => {
-    const webview = webviewRef.current
-    if (webview && readyRef.current) {
-      webview.setUserAgent(d.mobile ? MOBILE_UA : '')
-      webview.reload()
-    }
-  }, [d.mobile])
-
-  const navigate = (raw: string) => {
-    const next = ensureScheme(raw)
-    setUrlInput(next)
-    updateNodeData(id, { url: next })
-    if (next && webviewRef.current) {
-      webviewRef.current.setAttribute('src', next)
-    }
-  }
-
-  const runPicker = async () => {
-    const webview = webviewRef.current
-    if (!webview) {
+  useLayoutEffect(() => {
+    const node = getCrewCanvas(tabId).nodes.find((candidate) => candidate.id === id)
+    const preset = getBrowserViewportPreset(viewportPresetId)
+    if (!node) {
       return
     }
-    setPicking(true)
-    try {
-      await webview.executeJavaScript('window.__crewPicked = null')
-      await webview.executeJavaScript(PICKER_JS)
-      const picked = await waitForPick(webview)
-      if (picked && picked !== 'cancelled') {
-        sendNoteToAgent(picked)
-      }
-    } finally {
-      setPicking(false)
-    }
-  }
 
-  const waitForPick = (webview: Electron.WebviewTag): Promise<string | null> =>
-    new Promise((resolve) => {
-      const started = Date.now()
-      const poll = async () => {
-        if (Date.now() - started > 60_000) {
-          resolve(null)
-          return
-        }
-        const state = (await webview.executeJavaScript('window.__crewPicker')) as boolean
-        if (state === false) {
-          const picked = (await webview.executeJavaScript('window.__crewPicked ?? null')) as
-            | string
-            | null
-          resolve(picked)
-          return
-        }
-        setTimeout(poll, 350)
+    // CDP's native viewport override is independent from the <webview>'s host
+    // rectangle. Size the Canvas node once when a preset changes so the host
+    // shows the complete emulated viewport instead of clipping (for example,
+    // a 1920px page inside a 400px node). Do not continuously enforce it: that
+    // would fight NodeResizer and recreate the stuck/flickering gesture.
+    if (preset) {
+      const desktopSize = d.browserDesktopSize
+      const rememberedSize = {
+        width: Math.max(280, Math.round(desktopSize?.width ?? node.width ?? 560)),
+        height: Math.max(180, Math.round(desktopSize?.height ?? node.height ?? 460))
       }
-      void poll()
+      // BrowserPane's native guest occupies the node minus the Canvas border
+      // and the two native chrome rows. Measuring this during a React Flow
+      // resize is unstable (the guest and node update on different frames),
+      // which previously doubled the height on every restore and produced the
+      // visible flashing. Keep the native viewport contract deterministic.
+      const chromeWidth = 2
+      const chromeHeight = 80
+      const targetSize = {
+        width: preset.width + chromeWidth,
+        height: preset.height + chromeHeight
+      }
+      updateNodeData(id, {
+        ...(!desktopSize ? { browserDesktopSize: rememberedSize } : {}),
+        browserAppliedViewportPresetId: viewportPresetId
+      })
+      if (node.width !== targetSize.width || node.height !== targetSize.height) {
+        resizeNode(id, targetSize)
+      }
+      return
+    }
+
+    const desktopSize = d.browserDesktopSize
+    if (!desktopSize) {
+      return
+    }
+    const restoredSize = {
+      width: Math.max(280, Math.round(desktopSize.width ?? 560)),
+      height: Math.max(180, Math.round(desktopSize.height ?? 460))
+    }
+    if (node.width !== restoredSize.width || node.height !== restoredSize.height) {
+      resizeNode(id, restoredSize)
+    }
+    updateNodeData(id, {
+      browserDesktopSize: undefined,
+      browserAppliedViewportPresetId: null
     })
+  }, [
+    d.browserAppliedViewportPresetId,
+    d.browserDesktopSize,
+    id,
+    resizeNode,
+    tabId,
+    updateNodeData,
+    viewportPresetId
+  ])
 
-  const sendNoteToAgent = (pickedJson: string) => {
-    const graph = getCrewCanvas(tabId)
-    const peer = graph.edges
-      .filter((e) => e.source === id || e.target === id)
-      .map((e) => graph.nodes.find((n) => n.id === (e.source === id ? e.target : e.source)))
-      .find((n) => n && n.data.kind === 'agent')
-    if (!peer) {
+  const clearFixedViewportAfterManualResize = (
+    _event: unknown,
+    size: { width: number; height: number }
+  ): void => {
+    if (!viewportPresetId || !activeBrowserPage) {
       return
     }
-    const ptyId = agentPtyOf(peer.id)
-    if (!ptyId) {
-      return
-    }
-    let pretty = pickedJson
-    try {
-      const parsed = JSON.parse(pickedJson) as { selector: string; text: string; url: string }
-      pretty = `[anotação do navegador] ${parsed.url}\nelemento: ${parsed.selector}\nconteúdo: ${parsed.text}`
-    } catch {
-      // keep raw
-    }
-    window.api.pty.write(ptyId, `${pretty}\r`)
+    // A manual resize means "responsive/custom". Return the same native page
+    // to Default metrics so its content follows the new node bounds rather
+    // than leaving a fixed preset clipped inside them.
+    updateNodeData(id, {
+      browserDesktopSize: { width: size.width, height: size.height },
+      browserAppliedViewportPresetId: null
+    })
+    setBrowserPageViewportPreset(activeBrowserPage.id, null)
+    void window.api.browser.setViewportOverride({
+      browserPageId: activeBrowserPage.id,
+      override: null
+    })
   }
+
+  useLayoutEffect(() => {
+    const root = slotRef.current
+    if (!root || !browserWorkspaceIdForPane || !active) {
+      return
+    }
+    registerBrowserOverlaySlotViewport(browserWorkspaceIdForPane, root)
+    return () => unregisterBrowserOverlaySlotViewport(browserWorkspaceIdForPane, root)
+  }, [active, browserWorkspaceIdForPane])
+
+  const findShortcutScope = active ? 'focused' : 'inactive'
+  // The normal Orca browser overlay owns this same native workspace whenever
+  // the Canvas tab is not active. Rendering another BrowserPane here would
+  // reparent the same Chromium guest and make controls/viewport disappear.
+  const pane =
+    browserWorkspaceForPane && active ? (
+      <BrowserPane
+        browserTab={browserWorkspaceForPane}
+        isActive={active}
+        findShortcutScope={findShortcutScope}
+      />
+    ) : (
+      <div
+        style={{
+          flex: 1,
+          minHeight: 0,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          color: 'rgba(255,255,255,0.45)',
+          fontSize: 11
+        }}
+      >
+        {translate(
+          'auto.components.canvas.BrowserNode.preparingNative',
+          'preparing native browser…'
+        )}
+      </div>
+    )
 
   return (
     <div
@@ -255,8 +269,9 @@ export const BrowserNode = memo(function BrowserNode({ id, data, selected }: Nod
     >
       <NodeResizer
         isVisible={selected === true}
-        minWidth={200}
-        minHeight={140}
+        minWidth={280}
+        minHeight={180}
+        onResizeEnd={clearFixedViewportAfterManualResize}
         lineStyle={{ borderColor: 'rgba(122,162,255,0.4)' }}
         handleStyle={{ width: 8, height: 8, borderRadius: 2, background: 'rgba(122,162,255,0.75)' }}
       />
@@ -266,121 +281,37 @@ export const BrowserNode = memo(function BrowserNode({ id, data, selected }: Nod
           display: 'flex',
           alignItems: 'center',
           gap: 6,
-          padding: '6px 9px',
+          padding: '5px 9px',
           borderBottom: '1px solid rgba(255,255,255,0.07)',
           background: 'rgba(255,255,255,0.03)',
           cursor: 'grab',
-          userSelect: 'none'
+          userSelect: 'none',
+          color: 'rgba(255,255,255,0.72)',
+          fontSize: 11
         }}
       >
         <Globe size={12} style={{ color: '#5ed69b', flexShrink: 0 }} />
-        <form
-          className="nodrag"
-          style={{ flex: 1, display: 'flex', minWidth: 0 }}
-          onSubmit={(event) => {
-            event.preventDefault()
-            navigate(urlInput)
-          }}
-        >
-          <input
-            value={urlInput}
-            onChange={(event) => setUrlInput(event.target.value)}
-            onPointerDown={(event) => event.stopPropagation()}
-            placeholder={translate(
-              'auto.components.canvas.BrowserNode.urlPlaceholder',
-              'https://…'
-            )}
-            spellCheck={false}
-            style={{
-              flex: 1,
-              minWidth: 0,
-              background: 'rgba(255,255,255,0.06)',
-              border: '1px solid rgba(255,255,255,0.1)',
-              borderRadius: 7,
-              padding: '3px 8px',
-              fontSize: 11,
-              color: 'rgba(255,255,255,0.85)',
-              outline: 'none'
-            }}
-          />
-        </form>
-        <button
-          type="button"
-          className="nodrag"
-          onClick={() => d.url && navigate(d.url)}
-          title={translate('auto.components.canvas.BrowserNode.reload', 'Reload')}
-          style={iconButtonStyle}
-        >
-          <RefreshCw size={11} />
-        </button>
-        <button
-          type="button"
-          className="nodrag"
-          onClick={() => {
-            const next = !d.mobile
-            const store = getCrewCanvas(tabId)
-            if (next) {
-              const current = store.nodes.find((n) => n.id === id)
-              updateNodeData(id, {
-                mobile: true,
-                desktopSize: { width: current?.width ?? 560, height: current?.height ?? 460 }
-              })
-              store.resizeNode(id, { width: 420, height: 820 })
-            } else {
-              const back = (d.desktopSize as { width: number; height: number } | undefined) ?? {
-                width: 560,
-                height: 460
-              }
-              updateNodeData(id, { mobile: false })
-              store.resizeNode(id, back)
-            }
-          }}
-          title={
-            d.mobile
-              ? translate(
-                  'auto.components.canvas.BrowserNode.toDesktop',
-                  'Mobile (iPhone UA) — switch to desktop'
-                )
-              : translate(
-                  'auto.components.canvas.BrowserNode.toMobile',
-                  'Desktop — switch to mobile'
-                )
-          }
-          style={{ ...iconButtonStyle, color: d.mobile ? '#7aa2ff' : 'rgba(255,255,255,0.4)' }}
-        >
-          {d.mobile ? <Smartphone size={11} /> : <Monitor size={11} />}
-        </button>
-        <button
-          type="button"
-          className="nodrag"
-          onClick={() => void runPicker()}
-          title={translate(
-            'auto.components.canvas.BrowserNode.annotate',
-            'Annotate an element and send it to the connected agent'
+        <span>
+          {translate(
+            'auto.components.canvas.BrowserNode.nativeTitle',
+            'Canvas Browser · native Orca'
           )}
-          style={{ ...iconButtonStyle, color: picking ? '#ffd47a' : 'rgba(255,255,255,0.4)' }}
-        >
-          <Crosshair size={11} />
-        </button>
+        </span>
       </div>
       <div
-        ref={containerRef}
+        ref={slotRef}
         className="nodrag nowheel"
-        style={{ flex: 1, minHeight: 0, background: '#fff' }}
-      />
+        style={{ position: 'relative', flex: 1, minHeight: 0, minWidth: 0 }}
+      >
+        {pane}
+        <div
+          aria-hidden="true"
+          className="crew-browser-interaction-shield"
+          style={{ position: 'absolute', inset: 0, zIndex: 100, pointerEvents: 'none' }}
+        />
+      </div>
       <Handle type="target" position={Position.Left} style={{ width: 8, height: 8 }} />
       <Handle type="source" position={Position.Right} style={{ width: 8, height: 8 }} />
     </div>
   )
 })
-
-const iconButtonStyle: React.CSSProperties = {
-  background: 'rgba(255,255,255,0.06)',
-  border: '1px solid rgba(255,255,255,0.1)',
-  borderRadius: 6,
-  padding: 4,
-  cursor: 'pointer',
-  color: 'rgba(255,255,255,0.55)',
-  display: 'inline-flex',
-  flexShrink: 0
-}

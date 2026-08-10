@@ -151,6 +151,28 @@ function makeAnnotation(pageId: string, id = 'annotation-1'): BrowserPageAnnotat
 }
 
 describe('createBrowserSlice annotations', () => {
+  it('can materialize a stable native workspace and page for a Canvas mirror', () => {
+    const store = createTestStore()
+
+    const first = store.getState().createBrowserTab('wt-1', 'https://example.com', {
+      id: 'canvas-browser-node-1',
+      pageId: 'canvas-node-1',
+      activate: false,
+      title: 'Canvas Browser'
+    })
+    const second = store.getState().createBrowserTab('wt-1', 'https://other.example', {
+      id: 'canvas-browser-node-1',
+      pageId: 'canvas-node-1',
+      activate: false
+    })
+
+    expect(first).toBe(second)
+    expect(first.id).toBe('canvas-browser-node-1')
+    expect(first.activePageId).toBe('canvas-node-1')
+    expect(store.getState().browserPagesByWorkspace[first.id]).toHaveLength(1)
+    expect(store.getState().browserTabsByWorktree['wt-1']).toHaveLength(1)
+  })
+
   it('records browser-tab-created only for the explicit new-tab action', async () => {
     const store = createTestStore()
 

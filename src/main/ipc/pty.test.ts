@@ -1824,7 +1824,11 @@ describe('registerPtyHandlers', () => {
     getSelectedCodexHomePath?: (
       target?: { runtime?: 'host' | 'wsl'; wslDistro?: string | null },
       launchEnv?: NodeJS.ProcessEnv,
-      launchContext?: { workspacePath?: string; launchAgent?: TuiAgent }
+      launchContext?: {
+        workspacePath?: string
+        launchAgent?: TuiAgent
+        managedAccountId?: string | null
+      }
     ) => string | null,
     getSettings?: () => {
       enableGitHubAttribution?: boolean
@@ -3340,7 +3344,11 @@ describe('registerPtyHandlers', () => {
         getSelectedCodexHomePath?: (
           target?: { runtime?: 'host' | 'wsl'; wslDistro?: string | null },
           launchEnv?: NodeJS.ProcessEnv,
-          launchContext?: { workspacePath?: string; launchAgent?: TuiAgent }
+          launchContext?: {
+            workspacePath?: string
+            launchAgent?: TuiAgent
+            managedAccountId?: string | null
+          }
         ) => string | null,
         getSettings?: () => {
           enableGitHubAttribution?: boolean
@@ -3356,6 +3364,11 @@ describe('registerPtyHandlers', () => {
           command?: string
           launchAgent?: TuiAgent
           envToDelete?: string[]
+          launchConfig?: {
+            agentArgs: string
+            agentEnv: Record<string, string>
+            managedAccountId?: string | null
+          }
         },
         supportsGitCredentialGuardHost = true
       ): Promise<DaemonSpawnCall> {
@@ -3402,7 +3415,11 @@ describe('registerPtyHandlers', () => {
         getSelectedCodexHomePath?: (
           target?: { runtime?: 'host' | 'wsl'; wslDistro?: string | null },
           launchEnv?: NodeJS.ProcessEnv,
-          launchContext?: { workspacePath?: string; launchAgent?: TuiAgent }
+          launchContext?: {
+            workspacePath?: string
+            launchAgent?: TuiAgent
+            managedAccountId?: string | null
+          }
         ) => string | null,
         getSettings?: () => {
           enableGitHubAttribution?: boolean
@@ -3415,6 +3432,11 @@ describe('registerPtyHandlers', () => {
           shellOverride?: string
           command?: string
           launchAgent?: TuiAgent
+          launchConfig?: {
+            agentArgs: string
+            agentEnv: Record<string, string>
+            managedAccountId?: string | null
+          }
         },
         supportsGitCredentialGuardHost = true
       ): Promise<Record<string, string>> {
@@ -3470,6 +3492,53 @@ describe('registerPtyHandlers', () => {
           CODEX_HOME: TEST_CODEX_HOME,
           ORCA_CODEX_HOME: TEST_CODEX_HOME
         })
+      })
+
+      it('threads a Canvas Codex account pin through native spawn and pane ownership', async () => {
+        readFileSyncMock.mockReturnValue(TEST_CODEX_AUTH_JSON)
+        const resolveHome = vi.fn(
+          (
+            _target?: unknown,
+            _env?: NodeJS.ProcessEnv,
+            context?: { managedAccountId?: string | null }
+          ) => {
+            expect(context?.managedAccountId).toBe('account-canvas-2')
+            return TEST_CODEX_HOME
+          }
+        )
+
+        await daemonSpawnAndGetOptions(
+          undefined,
+          resolveHome,
+          (() => ({
+            codexManagedAccounts: [
+              {
+                id: 'account-canvas-2',
+                managedHomePath: TEST_CODEX_HOME,
+                managedHomeRuntime: 'host'
+              }
+            ]
+          })) as never,
+          undefined,
+          {
+            launchAgent: 'codex',
+            launchConfig: {
+              agentArgs: '',
+              agentEnv: {},
+              managedAccountId: 'account-canvas-2'
+            }
+          }
+        )
+
+        expect(resolveHome).toHaveBeenCalled()
+        expect(recordCodexPaneAccountMock).toHaveBeenCalledWith(
+          expect.any(String),
+          expect.objectContaining({
+            accountId: 'account-canvas-2',
+            homeRoute: 'account-home',
+            selectionKey: 'host'
+          })
+        )
       })
 
       it('resolves valid managed Codex auth synchronously', () => {

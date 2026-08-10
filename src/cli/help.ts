@@ -28,6 +28,12 @@ Skills:
   skills install            Install bundled Orca skills globally via the community skills CLI
   skills update             Update already-installed Orca skills via the community skills CLI
 
+Canvas:
+  canvas connections        List nodes connected to the current Canvas agent
+  canvas graph              List persisted Canvas graphs and nodes
+  canvas call               Call a tool on a connected Canvas node
+  canvas ask                Message another connected Canvas agent
+
 Environments:
   environment add           Save a remote Orca runtime from a pairing code
   environment list          List saved remote Orca runtimes
@@ -221,6 +227,10 @@ Common Commands:
   orca status [--json]
   orca diagnostics memory [--json]
   orca agent-context [--json]
+  orca canvas connections [--json]
+  orca canvas graph [--json]
+  orca canvas call --tool <tool> [--node <id>] [--args <json>] [--json]
+  orca canvas ask --to <node-or-label> --message <text> [--json]
   orca account add [--agent claude|codex] [--json]
   orca account list [--json]
   orca environment add --name <name> --pairing-code <code> [--json]

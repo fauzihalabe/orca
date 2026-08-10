@@ -301,6 +301,11 @@ export function createMainWindow(
       webviewTag: true
     }
   })
+  // The main window is the lifecycle owner for independent native services
+  // (runtime, browser, watchers, updater, permissions, etc.). Each installs a
+  // single close cleanup, so the Node default of 10 is legitimately too low;
+  // keep a finite ceiling so a real repeated-registration leak still warns.
+  mainWindow.setMaxListeners(Math.max(mainWindow.getMaxListeners(), 20))
   const rendererWebContentsId = mainWindow.webContents.id
   // Why: native paste fallback is privileged IPC; only the top-level renderer may request it.
   setTrustedUIRendererWebContentsId(rendererWebContentsId)

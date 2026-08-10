@@ -15001,7 +15001,8 @@
         },
         "AgentAccountSelect": {
           "title": "Provider account (Orca native engine — manage in Settings → AI Provider Accounts)",
-          "systemDefault": "system default"
+          "systemDefault": "system default",
+          "missing": "missing"
         },
         "AgentArgsEditor": {
           "buttonTitle": "Agent launch args",
@@ -15030,6 +15031,9 @@
           "networkHint": "live traffic of a linked browser"
         },
         "BrowserNode": {
+          "title": "Canvas Browser",
+          "preparingNative": "preparing native browser…",
+          "nativeTitle": "Canvas Browser · native Orca",
           "urlPlaceholder": "https://…",
           "reload": "Reload",
           "toDesktop": "Mobile (iPhone UA) — switch to desktop",
@@ -15073,6 +15077,11 @@
           "search": "Search Linear issues…",
           "searching": "searching…",
           "empty": "no issues"
+        }
+      },
+      "floatingTerminal": {
+        "FloatingBrowserSlot": {
+          "canvasOwned": "native browser shown in Canvas"
         }
       }
     },

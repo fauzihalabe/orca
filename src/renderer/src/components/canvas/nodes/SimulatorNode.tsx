@@ -1,18 +1,20 @@
-import { memo } from 'react'
+import { memo, useEffect } from 'react'
 import { Handle, Position, type NodeProps } from '@xyflow/react'
-import { useAppStore } from '@/store'
 import { EmulatorDeviceFrame } from '../../emulator-pane/emulator-device-frame'
 import { useEmulatorPaneSession } from '../../emulator-pane/use-emulator-pane-session'
 import type { CrewCanvasNodeData } from '../canvas-store'
+import { getCrewCanvas, useCrewCanvasTab } from '../canvas-store'
+import { useCanvasTab } from '../canvas-tab-context'
 import { translate } from '@/i18n/i18n'
 
 // iOS Simulator node — just the device floating on the canvas, no app chrome:
 // no toolbar, no banner. Orca's emulator engine (stream, tap, gesture) drives
 // it; the thin dark rim around the device doubles as the drag handle.
-export const SimulatorNode = memo(function SimulatorNode({ data, selected }: NodeProps) {
+export const SimulatorNode = memo(function SimulatorNode({ id, data, selected }: NodeProps) {
   const d = data as CrewCanvasNodeData
   void d
-  const worktreeId = useAppStore((s) => s.activeWorktreeId)
+  const { tabId, worktreeId } = useCanvasTab()
+  const updateNodeData = useCrewCanvasTab(tabId, (s) => s.updateNodeData)
 
   return (
     <div
@@ -28,7 +30,13 @@ export const SimulatorNode = memo(function SimulatorNode({ data, selected }: Nod
       }}
     >
       {worktreeId ? (
-        <SimulatorDevice worktreeId={worktreeId} selected={selected === true} />
+        <SimulatorDevice
+          nodeId={id}
+          tabId={tabId}
+          worktreeId={worktreeId}
+          selected={selected === true}
+          updateNodeData={updateNodeData}
+        />
       ) : (
         <div
           className="drag-handle"
@@ -59,7 +67,19 @@ export const SimulatorNode = memo(function SimulatorNode({ data, selected }: Nod
   )
 })
 
-function SimulatorDevice({ worktreeId, selected }: { worktreeId: string; selected: boolean }) {
+function SimulatorDevice({
+  nodeId,
+  tabId,
+  worktreeId,
+  selected,
+  updateNodeData
+}: {
+  nodeId: string
+  tabId: string
+  worktreeId: string
+  selected: boolean
+  updateNodeData: (nodeId: string, patch: Record<string, unknown>) => void
+}) {
   const {
     selectedUdid,
     attach,
@@ -68,11 +88,27 @@ function SimulatorDevice({ worktreeId, selected }: { worktreeId: string; selecte
     wsUrl,
     streamKey,
     displayName,
+    session,
     isLive,
     visualOrientation,
     sendTap,
     sendGesture
   } = useEmulatorPaneSession({ worktreeId, autoAttachOnMount: true })
+  const deviceUdid = session?.info?.deviceUdid ?? selectedUdid ?? null
+
+  useEffect(() => {
+    if (!nodeId) {
+      return
+    }
+    const current = getCrewCanvas(tabId).nodes.find((node) => node.id === nodeId)?.data
+    if (current?.runtimeWorktreeId === worktreeId && current?.deviceUdid === deviceUdid) {
+      return
+    }
+    updateNodeData(nodeId, {
+      runtimeWorktreeId: worktreeId,
+      ...(deviceUdid ? { deviceUdid } : { deviceUdid: undefined })
+    })
+  }, [deviceUdid, nodeId, tabId, updateNodeData, worktreeId])
 
   void selectedUdid
   void attach

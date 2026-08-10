@@ -13,6 +13,41 @@ const emptyLaunchConfig = (agentCommand: string) => ({
 })
 
 describe('buildAgentStartupPlan', () => {
+  it('delivers Canvas context through Codex native developer instructions', () => {
+    expect(
+      buildAgentStartupPlan({
+        agent: 'codex',
+        prompt: '',
+        cmdOverrides: {},
+        platform: 'darwin',
+        allowEmptyPromptLaunch: true,
+        agentArgs: "'resume' 'session-1'",
+        nativeSystemPrompt: 'Use only connected Canvas nodes.'
+      })
+    ).toMatchObject({
+      launchCommand:
+        "codex 'resume' 'session-1' -c 'developer_instructions=Use only connected Canvas nodes.'"
+    })
+  })
+
+  it('persists the Canvas agent account in the native launch plan', () => {
+    expect(
+      buildAgentStartupPlan({
+        agent: 'codex',
+        prompt: '',
+        cmdOverrides: {},
+        platform: 'darwin',
+        allowEmptyPromptLaunch: true,
+        managedAccountId: 'account-canvas-2'
+      })?.launchConfig
+    ).toMatchObject({
+      agentCommand: 'codex',
+      agentArgs: '',
+      agentEnv: {},
+      managedAccountId: 'account-canvas-2'
+    })
+  })
+
   it('passes Claude prompts as a positional interactive argument', () => {
     expect(
       buildAgentStartupPlan({

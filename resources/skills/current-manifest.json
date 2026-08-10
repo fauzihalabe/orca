@@ -38,6 +38,24 @@
       ]
     },
     {
+      "name": "orca-canvas",
+      "sourcePath": "skills/orca-canvas",
+      "releaseRevision": 1,
+      "packageDigest": "d90636006c7954d5410fc0a1c4953f9283d0012dea9ccbe7e80d935e77526015",
+      "gitTreeSha": "482e46369534caf9f401fe08c4acb6f18ec37d2e",
+      "files": [
+        {
+          "path": "SKILL.md",
+          "size": 2597,
+          "executable": false,
+          "classification": "text",
+          "exactSha256": "f42fbdd1aa2748c6d7fb7dfcac59de5ca54c70b05e5ce0fe7986ca6af88323f1",
+          "textNormalizedSha256": "f42fbdd1aa2748c6d7fb7dfcac59de5ca54c70b05e5ce0fe7986ca6af88323f1",
+          "identitySha256": "f42fbdd1aa2748c6d7fb7dfcac59de5ca54c70b05e5ce0fe7986ca6af88323f1"
+        }
+      ]
+    },
+    {
       "name": "orca-cli",
       "sourcePath": "skills/orca-cli",
       "releaseRevision": 36,

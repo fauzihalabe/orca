@@ -40,6 +40,25 @@ export function registerBrowserOverlaySlotViewport(
   slotRootListeners.delete(workspaceTabId)
 }
 
+/**
+ * Remove a slot only when the caller still owns the registered root.
+ *
+ * Canvas and the native Orca tab layer can hand the same native BrowserPane
+ * workspace to each other during one React commit. An unconditional cleanup
+ * from the old owner could otherwise delete the new owner's root.
+ */
+export function unregisterBrowserOverlaySlotViewport(
+  workspaceTabId: string,
+  element: HTMLDivElement
+): void {
+  if (slotViewportRoots.get(workspaceTabId) !== element) {
+    return
+  }
+  slotViewportRoots.delete(workspaceTabId)
+  slotRootListeners.delete(workspaceTabId)
+  notifySlotRootListeners(workspaceTabId)
+}
+
 export function getBrowserOverlaySlotViewport(workspaceTabId: string): HTMLDivElement | null {
   return slotViewportRoots.get(workspaceTabId) ?? null
 }

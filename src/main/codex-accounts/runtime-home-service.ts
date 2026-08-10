@@ -259,6 +259,37 @@ export class CodexRuntimeHomeService {
     return this.getRuntimeHomePath()
   }
 
+  /** Prepares one host account without changing Orca's selected account.
+   *  Canvas agents use this to keep independent native Codex homes while the
+   *  normal settings selection remains the workspace/runtime fallback. */
+  prepareForCodexAccountLaunch(
+    accountId: string | null,
+    target?: CodexAccountSelectionTarget,
+    options?: { unavailableManagedHomePath?: string }
+  ): string | null {
+    if (target?.runtime === 'wsl') {
+      throw new Error('Per-agent Codex accounts are not available for WSL workspaces yet.')
+    }
+    if (accountId === null) {
+      this.reconcileLegacySharedHomeForRetainedPanes()
+      return null
+    }
+    const account = this.store
+      .getSettings()
+      .codexManagedAccounts.find((candidate) => candidate.id === accountId)
+    if (!account || this.getWslManagedHomePath(account)) {
+      throw new Error(`Codex account ${accountId} is unavailable on this Mac.`)
+    }
+    const home = this.prepareSelfContainedManagedHomeForLaunch(
+      account,
+      options?.unavailableManagedHomePath
+    )
+    if (!home) {
+      throw new Error(`Codex account ${accountId} has no usable native runtime home.`)
+    }
+    return home
+  }
+
   beginHostSystemDefaultSessionMigrationLaunch(
     codexHomePath: string | null,
     options: { reattached?: boolean; launchEnv?: NodeJS.ProcessEnv } = {}

@@ -120,6 +120,32 @@ describe('CodexRuntimeHomeService per-account takeover composition', () => {
     expect(readFileSync(join(accountTwo.managedHomePath, 'auth.json'), 'utf8')).toBe(accountTwoAuth)
   })
 
+  it('prepares a different Canvas account without changing the Orca workspace selection', async () => {
+    const accountOne = createManagedAccount(
+      'account-1',
+      'acct-1',
+      createAuth('one@example.com', 'acct-1', 'one', 1_000)
+    )
+    const accountTwo = createManagedAccount(
+      'account-2',
+      'acct-2',
+      createAuth('two@example.com', 'acct-2', 'two', 2_000),
+      'two@example.com'
+    )
+    const { settings, store } = createStore([accountOne, accountTwo], accountOne.id)
+    const { CodexRuntimeHomeService } = await import('./runtime-home-service')
+    const service = new CodexRuntimeHomeService(store as never)
+
+    expect(service.prepareForCodexAccountLaunch(accountTwo.id)).toBe(accountTwo.managedHomePath)
+    expect(settings.activeCodexManagedAccountId).toBe(accountOne.id)
+    expect(settings.activeCodexManagedAccountIdsByRuntime).toEqual({
+      host: accountOne.id,
+      wsl: {}
+    })
+    expect(service.prepareForCodexAccountLaunch(null)).toBeNull()
+    expect(settings.activeCodexManagedAccountId).toBe(accountOne.id)
+  })
+
   it('migrates the one proven C-era refresh, launches E home, then ignores shared auth', async () => {
     const stale = createAuth('one@example.com', 'acct-1', 'stale', 1_000)
     const migrated = createAuth('one@example.com', 'acct-1', 'migrated', 2_000)

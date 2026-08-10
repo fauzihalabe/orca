@@ -40,6 +40,7 @@ import {
 } from '@/lib/adopt-agent-background-session-tab'
 import { createBackgroundAgentStatusConsumer } from '@/lib/background-agent-status-consumer'
 import { isWslUncPath } from '../../../shared/wsl-paths'
+import { trustAgentWorkspace } from '@/lib/agent-background-workspace-trust'
 
 export async function launchAgentBackgroundSession(
   args: LaunchAgentBackgroundSessionArgs
@@ -66,18 +67,7 @@ export async function launchAgentBackgroundSession(
     worktreePath: worktree.path,
     repo
   })
-  const preflight = TUI_AGENT_CONFIG[agent].preflightTrust
-  if (preflight && worktree.path && window.api.agentTrust?.markTrusted) {
-    try {
-      await window.api.agentTrust.markTrusted({
-        preset: preflight,
-        workspacePath: worktree.path,
-        ...(launchHost.connectionId ? { connectionId: launchHost.connectionId } : {})
-      })
-    } catch {
-      // Best-effort: the user can still accept the trust prompt.
-    }
-  }
+  await trustAgentWorkspace(agent, worktree.path, launchHost.connectionId)
   const { platform: launchPlatform, isRemote } = launchHost
   const startupShell = resolveLocalWindowsAgentStartupShell({
     platform: launchPlatform,
@@ -95,6 +85,8 @@ export async function launchAgentBackgroundSession(
     cmdOverrides,
     agentArgs,
     agentEnv,
+    ...(args.managedAccountId !== undefined ? { managedAccountId: args.managedAccountId } : {}),
+    nativeSystemPrompt: args.nativeSystemPrompt,
     platform: launchPlatform,
     shell: startupShell,
     isRemote,
@@ -110,6 +102,7 @@ export async function launchAgentBackgroundSession(
       store,
       agentType: agent,
       worktreeId,
+      ...(args.nativeTab ? { nativeTab: args.nativeTab } : {}),
       launchConfig: startupPlan.launchConfig,
       env: startupPlan.env
     })
@@ -236,6 +229,7 @@ export async function launchAgentBackgroundSession(
       launchRegistration,
       runtimeTarget,
       runtimeTerminalHandle,
+      reuseExistingTab: Boolean(args.nativeTab),
       onRetire: () => {
         exitHandled = true
         sshStartupDelivery.clear()

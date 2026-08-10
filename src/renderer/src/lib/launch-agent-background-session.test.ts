@@ -166,6 +166,33 @@ describe('launchAgentBackgroundSession', () => {
     expect(result).toMatchObject({ tabId, paneKey, ptyId: 'pty-1' })
   })
 
+  it('adopts a Canvas-created native tab without minting a duplicate', async () => {
+    const tabId = '22222222-2222-4222-8222-222222222222'
+    const leafId = '33333333-3333-4333-8333-333333333333'
+    state.tabsByWorktree['wt-1'].push({
+      id: tabId,
+      title: 'Canvas · codex',
+      worktreeId: 'wt-1'
+    } as never)
+    const { launchAgentBackgroundSession } = await import('./launch-agent-background-session')
+
+    const result = await launchAgentBackgroundSession({
+      agent: 'codex',
+      worktreeId: 'wt-1',
+      agentArgs: '',
+      nativeTab: {
+        tabId,
+        leafId,
+        paneKey: `${tabId}:${leafId}`
+      }
+    })
+
+    expect(mockCreateTab).not.toHaveBeenCalled()
+    expect(mockSpawn).toHaveBeenCalledWith(expect.objectContaining({ tabId, leafId }))
+    expect(result).toMatchObject({ tabId, ptyId: 'pty-1' })
+    expect(mockUpdateTabPtyId).toHaveBeenCalledWith(tabId, 'pty-1')
+  })
+
   it('does not create or mount the tab while the explicit PTY spawn is unresolved', async () => {
     let resolveSpawn!: (result: { id: string }) => void
     mockSpawn.mockReturnValueOnce(

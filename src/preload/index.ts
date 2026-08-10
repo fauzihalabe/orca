@@ -2108,7 +2108,15 @@ const api = {
     listRecordedPaneLanes: (args: { ptyIds: string[] }): Promise<Record<string, string>> =>
       ipcRenderer.invoke('codexAccounts:listRecordedPaneLanes', args),
     forgetStalePanes: (args: { ptyIds: string[] }): Promise<void> =>
-      ipcRenderer.invoke('codexAccounts:forgetStalePanes', args)
+      ipcRenderer.invoke('codexAccounts:forgetStalePanes', args),
+    onChanged: (callback): (() => void) => {
+      const listener = (
+        _event: Electron.IpcRendererEvent,
+        state: Parameters<typeof callback>[0]
+      ): void => callback(state)
+      ipcRenderer.on('codexAccounts:changed', listener)
+      return () => ipcRenderer.removeListener('codexAccounts:changed', listener)
+    }
   },
 
   claudeAccounts: {
@@ -3082,8 +3090,26 @@ const api = {
   },
 
   crew: {
-    getBridgeInfo: (): Promise<{ port: number; token: string } | null> =>
-      ipcRenderer.invoke('crew:bridge-info'),
+    getBridgeInfo: (args?: {
+      nodeId?: string
+    }): Promise<{ port: number; token: string; agentId?: string } | null> =>
+      ipcRenderer.invoke('crew:bridge-info', args),
+    getCanvasState: () => ipcRenderer.invoke('crew:canvas-state'),
+    syncCanvas: (args: {
+      tabId: string
+      worktreeId?: string | null
+      graph: unknown
+      baseRevision: number
+    }) => ipcRenderer.invoke('crew:canvas-sync', args),
+    removeCanvas: (args: { tabId: string; baseRevision: number }) =>
+      ipcRenderer.invoke('crew:canvas-remove', args),
+    onCanvasUpdate: (callback) => {
+      const listener = (_event: Electron.IpcRendererEvent, event: unknown): void => {
+        callback(event as Parameters<Parameters<PreloadApi['crew']['onCanvasUpdate']>[0]>[0])
+      }
+      ipcRenderer.on('crew:canvas-update', listener)
+      return () => ipcRenderer.removeListener('crew:canvas-update', listener)
+    },
     readTempFile: (args: { path: string; deleteAfter?: boolean }): Promise<string> =>
       ipcRenderer.invoke('crew:read-temp-file', args),
     sendAskReply: (args: { requestId: string; text: string }): void => {

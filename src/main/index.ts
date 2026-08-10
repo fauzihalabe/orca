@@ -841,7 +841,16 @@ ipcMain.handle('app:recoverLegacyWorkerTerminalsForRendererStartup', () =>
     managedWslCliStartupBarrierReady,
     localPtyProviderStartupReady,
     reconcile: async () => {
-      await runtime?.refreshRestoredOrchestrationAuthority()
+      try {
+        await runtime?.refreshRestoredOrchestrationAuthority()
+      } catch (error) {
+        // The provider can still be coming online during renderer hydration.
+        // The reconciliation pass below has its own inventory fence and retry
+        // path, so do not turn this expected transient into a startup error.
+        if (!(error instanceof Error && error.message === 'terminal_liveness_unavailable')) {
+          throw error
+        }
+      }
       return runtime?.reconcileLegacyWorkerTerminals({ materializeRenderer: true })
     },
     onDeferredRecoveryError: (error) => {
@@ -973,6 +982,9 @@ function prepareCodexRuntimeHomeForLaunch(
   launchEnv?: NodeJS.ProcessEnv,
   launchContext?: CodexHomeLaunchContext
 ): string | null {
+  const hasPinnedManagedAccount =
+    launchContext !== undefined &&
+    Object.prototype.hasOwnProperty.call(launchContext, 'managedAccountId')
   if (
     target?.runtime !== 'wsl' &&
     launchContext?.launchAgent === 'codex' &&
@@ -988,7 +1000,9 @@ function prepareCodexRuntimeHomeForLaunch(
   const ensureRealHomeHooksIfSelected = (): boolean => {
     if (
       target?.runtime === 'wsl' ||
-      !codexRuntimeHome!.isHostSystemDefaultRealHomeSelected(launchEnv)
+      (hasPinnedManagedAccount
+        ? launchContext.managedAccountId !== null
+        : !codexRuntimeHome!.isHostSystemDefaultRealHomeSelected(launchEnv))
     ) {
       return false
     }
@@ -1003,18 +1017,24 @@ function prepareCodexRuntimeHomeForLaunch(
     return true
   }
   let realHomeHooksPrepared = ensureRealHomeHooksIfSelected()
-  let runtimeHomePath = codexRuntimeHome!.prepareForCodexLaunch(target, launchEnv, {
-    unavailableManagedHomePath: launchContext?.unavailableManagedHomePath
-  })
+  const prepareRuntimeHome = (): string | null =>
+    hasPinnedManagedAccount
+      ? codexRuntimeHome!.prepareForCodexAccountLaunch(
+          launchContext.managedAccountId ?? null,
+          target,
+          { unavailableManagedHomePath: launchContext.unavailableManagedHomePath }
+        )
+      : codexRuntimeHome!.prepareForCodexLaunch(target, launchEnv, {
+          unavailableManagedHomePath: launchContext?.unavailableManagedHomePath
+        })
+  let runtimeHomePath = prepareRuntimeHome()
   if (runtimeHomePath === null && !realHomeHooksPrepared) {
     // Why: launch prep can reject an untrusted managed home and clear its
     // selection. Establish hook capability for that newly selected lane, then
     // re-resolve if the capability gate rejects it.
     realHomeHooksPrepared = ensureRealHomeHooksIfSelected()
     if (realHomeHooksPrepared) {
-      runtimeHomePath = codexRuntimeHome!.prepareForCodexLaunch(target, launchEnv, {
-        unavailableManagedHomePath: launchContext?.unavailableManagedHomePath
-      })
+      runtimeHomePath = prepareRuntimeHome()
     }
   }
   if (runtimeHomePath === null && target?.runtime !== 'wsl') {
@@ -1412,7 +1432,12 @@ function openMainWindow(): BrowserWindow {
       ? { marketplace: pluginMarketplaceService, installer: pluginMarketplaceInstaller }
       : undefined
   )
-  startCrewBridge(() => mainWindow)
+  startCrewBridge(() => mainWindow, {
+    statePath: join(app.getPath('userData'), 'crew-canvas', 'state.json'),
+    // The bridge starts before all runtime drivers are attached; resolve the
+    // service lazily so native browser/emulator calls use the final service.
+    getRuntime: () => runtime ?? null
+  })
   automations.setWebContents(window.webContents)
   automations.start()
   attachMainWindowServices(

@@ -16,6 +16,7 @@ export function AgentNodeHeader({
   label,
   role,
   args,
+  managedAccountId,
   linearIssueLabel,
   onAccountChanged
 }: {
@@ -24,8 +25,9 @@ export function AgentNodeHeader({
   label: string | undefined
   role: string
   args: string | undefined
+  managedAccountId?: string | null
   linearIssueLabel: string | undefined
-  onAccountChanged: () => void
+  onAccountChanged: (managedAccountId?: string | null) => void
 }) {
   const tabId = useCanvasTab().tabId
   const updateNodeData = useCrewCanvasTab(tabId, (s) => s.updateNodeData)
@@ -81,6 +83,8 @@ export function AgentNodeHeader({
         />
       ) : (
         <span
+          className="nodrag"
+          onPointerDown={(event) => event.stopPropagation()}
           style={{ fontSize: 11.5, fontWeight: 600, color: 'rgba(255,255,255,0.85)' }}
           onDoubleClick={(event) => {
             event.stopPropagation()
@@ -120,6 +124,8 @@ export function AgentNodeHeader({
         />
       ) : (
         <span
+          className="nodrag"
+          onPointerDown={(event) => event.stopPropagation()}
           onDoubleClick={(event) => {
             event.stopPropagation()
             setEditingRole(true)
@@ -160,7 +166,11 @@ export function AgentNodeHeader({
             updateNodeData(id, { linearIssueId: undefined, linearIssueLabel: undefined })
           }
         />
-        <AgentAccountSelect agentKind={agentKind} onAccountChanged={onAccountChanged} />
+        <AgentAccountSelect
+          agentKind={agentKind}
+          managedAccountId={managedAccountId}
+          onAccountChanged={onAccountChanged}
+        />
         <AgentArgsEditor
           args={args ?? ''}
           onSave={(next) => updateNodeData(id, { args: next || undefined })}

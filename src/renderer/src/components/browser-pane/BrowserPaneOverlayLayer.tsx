@@ -1,5 +1,8 @@
-import { memo, useCallback, useLayoutEffect, useMemo, useState } from 'react'
-import { registerBrowserOverlaySlotViewport } from './browser-page-viewport'
+import { memo, useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import {
+  registerBrowserOverlaySlotViewport,
+  unregisterBrowserOverlaySlotViewport
+} from './browser-page-viewport'
 import { useShallow } from 'zustand/react/shallow'
 import { useAppStore } from '../../store'
 import type { BrowserTab as BrowserTabState, Tab, TabGroup } from '../../../../shared/types'
@@ -7,6 +10,7 @@ import BrowserPane, { type BrowserFindShortcutScope } from './BrowserPane'
 import { tabGroupBodyAnchorName } from '../tab-group/tab-group-body-anchor'
 import { useBrowserAutomationVisibilityForAny } from './browser-automation-visibility'
 import { useBrowserMobileDriverForAny } from '@/lib/pane-manager/browser-mobile-driver-state'
+import { useCrewCanvas } from '../canvas/canvas-store'
 
 // Why: Electron <webview> destroys its guest on DOM reparent, so BrowserPanes render at worktree level and moving a tab between groups only swaps the overlay's CSS position-anchor.
 
@@ -40,9 +44,19 @@ const BrowserOverlaySlot = memo(function BrowserOverlaySlot({
   isWorktreeActive
 }: BrowserOverlaySlotProps): React.JSX.Element {
   // Why: persistent page viewports (webview guests) live under this root so they survive BrowserPane chrome unmounts without reparenting.
+  const slotViewportRef = useRef<HTMLDivElement | null>(null)
   const setSlotViewportRef = useCallback(
     (node: HTMLDivElement | null): void => {
-      registerBrowserOverlaySlotViewport(browserTab.id, node)
+      if (node) {
+        slotViewportRef.current = node
+        registerBrowserOverlaySlotViewport(browserTab.id, node)
+        return
+      }
+      const previous = slotViewportRef.current
+      slotViewportRef.current = null
+      if (previous) {
+        unregisterBrowserOverlaySlotViewport(browserTab.id, previous)
+      }
     },
     [browserTab.id]
   )
@@ -127,6 +141,7 @@ const BrowserPaneOverlayLayer = memo(function BrowserPaneOverlayLayer({
       focusedGroupId: state.activeGroupIdByWorktree[worktreeId]
     }))
   )
+  const canvasGraphs = useCrewCanvas((state) => state.canvases)
   const focusGroup = useAppStore((state) => state.focusGroup)
   const knownFocusedGroupId = useMemo(
     () =>
@@ -166,9 +181,44 @@ const BrowserPaneOverlayLayer = memo(function BrowserPaneOverlayLayer({
     return entries
   }, [groupActiveTabById, unifiedTabs])
 
+  // A Canvas browser node is the same native Orca workspace, not a second
+  // browser implementation. While its Canvas tab is active, let the node own
+  // the single BrowserPane. When the user activates the normal Orca browser
+  // tab, this set becomes empty and the native overlay takes ownership.
+  const activeCanvasBrowserWorkspaceIds = useMemo(() => {
+    const activeCanvasTabIds = new Set(
+      unifiedTabs
+        .filter((tab) => tab.contentType === 'canvas')
+        .filter((tab) => groupActiveTabById[tab.groupId] === tab.id)
+        .map((tab) => tab.id)
+    )
+    const workspaceIds = new Set<string>()
+    if (!isWorktreeActive || activeCanvasTabIds.size === 0) {
+      return workspaceIds
+    }
+    for (const canvasTabId of activeCanvasTabIds) {
+      const graph = canvasGraphs[canvasTabId]
+      for (const node of graph?.nodes ?? []) {
+        if (node.data.kind !== 'browser') {
+          continue
+        }
+        const configuredWorkspaceId = node.data.browserWorkspaceId
+        workspaceIds.add(
+          typeof configuredWorkspaceId === 'string' && configuredWorkspaceId.trim().length > 0
+            ? configuredWorkspaceId
+            : `canvas-browser-${node.id}`
+        )
+      }
+    }
+    return workspaceIds
+  }, [canvasGraphs, groupActiveTabById, isWorktreeActive, unifiedTabs])
+
   return (
     <>
       {browserTabs.map((browserTab) => {
+        if (activeCanvasBrowserWorkspaceIds.has(browserTab.id)) {
+          return null
+        }
         const assignment = assignments.get(browserTab.id)
         const isActive = Boolean(isWorktreeActive && assignment && assignment.isActiveInGroup)
         const findShortcutScope: BrowserFindShortcutScope = !isActive

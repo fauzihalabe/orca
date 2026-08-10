@@ -99,6 +99,22 @@ describe('maybeAutoRenameBranchOnFirstWork', () => {
     expect(onRenamed).toHaveBeenCalledWith(REPO_ID)
   })
 
+  it('settles a non-git workspace after one branch probe', async () => {
+    gitExecFileAsyncMock.mockRejectedValue(
+      Object.assign(new Error('Command failed: git rev-parse --abbrev-ref HEAD'), {
+        stderr: 'fatal: not a git repository (or any of the parent directories): .git\n'
+      })
+    )
+    const { deps, setRenameError } = makeDeps()
+
+    await maybeAutoRenameBranchOnFirstWork(workingEvent(), deps)
+    await maybeAutoRenameBranchOnFirstWork(workingEvent(), deps)
+
+    expect(gitExecFileAsyncMock).toHaveBeenCalledTimes(1)
+    expect(setRenameError).toHaveBeenCalledWith(WORKTREE_ID, null)
+    expect(generateBranchNameMock).not.toHaveBeenCalled()
+  })
+
   it('asks to align the on-disk folder with the generated slug after renaming', async () => {
     const { deps, renameWorktreeFolder } = makeDeps()
     await maybeAutoRenameBranchOnFirstWork(workingEvent(), deps)

@@ -863,6 +863,7 @@ function copyLaunchConfig(config: SleepingAgentLaunchConfig): SleepingAgentLaunc
     ...(config.agentCommand ? { agentCommand: config.agentCommand } : {}),
     agentArgs: config.agentArgs,
     agentEnv: { ...config.agentEnv },
+    ...(config.managedAccountId !== undefined ? { managedAccountId: config.managedAccountId } : {}),
     ...(config.ompResumeFilePath ? { ompResumeFilePath: config.ompResumeFilePath } : {})
   }
 }
@@ -877,6 +878,7 @@ function launchConfigsEqual(
   if (
     a.agentCommand !== b.agentCommand ||
     a.agentArgs !== b.agentArgs ||
+    a.managedAccountId !== b.managedAccountId ||
     a.ompResumeFilePath !== b.ompResumeFilePath
   ) {
     return false

@@ -239,5 +239,10 @@ export const HANDLER_GROUPS: readonly HandlerGroup[] = [
     name: 'skills',
     keys: ['skills list', 'skills get', 'skills install', 'skills update'],
     load: async () => (await import('./handlers/skills.js')).SKILL_HANDLERS
+  },
+  {
+    name: 'canvas',
+    keys: ['canvas mcp-serve', 'canvas connections', 'canvas graph', 'canvas call', 'canvas ask'],
+    load: async () => (await import('./handlers/canvas.js')).CANVAS_HANDLERS
   }
 ]

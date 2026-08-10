@@ -46,6 +46,51 @@ ORCA terminal list --json
 Keep using that same executable for every later command so dev sessions do not reach a
 production CLI and Linux never falls through to the GNOME screen reader.
 
+## Canvas-connected nodes
+
+When this terminal belongs to an Orca Canvas agent, Canvas connections are exposed by the
+same native CLI and the main Orca process is the capability broker. The Canvas edge is the
+permission boundary: only nodes joined to this agent by a live edge can be called. The
+credential is scoped to the stable agent node id.
+
+Discover the live connections before acting, and repeat this after the user changes a line:
+
+```text
+ORCA canvas connections --json
+```
+
+Every connection has a stable `node` id. Use that id when more than one node has the same
+kind or label:
+
+```text
+ORCA canvas call --tool note.read --node <node-id> --json
+ORCA canvas call --tool terminal.run --node <node-id> --args '{"command":"pwd"}' --json
+ORCA canvas call --tool browser.read --node <node-id> --json
+ORCA canvas call --tool simulator.ax --node <node-id> --json
+ORCA canvas call --tool network.read --node <node-id> --json
+ORCA canvas call --tool timer.read --node <node-id> --json
+ORCA canvas ask --to <agent-node-id> --message "<message>" --json
+```
+
+`ORCA canvas graph --json` is read-only topology discovery for the persisted Canvas
+graphs. Browser nodes are also registered in Orca's native browser engine as
+`canvas-<node-id>` pages, so use the normal page-targeted commands when you need the
+accessibility snapshot or native browser actions:
+
+```text
+ORCA snapshot --page canvas-<browser-node-id> --json
+ORCA click --page canvas-<browser-node-id> --element <ref> --json
+```
+
+The Canvas aliases `browser.*`, `network.*`, and `simulator.*` dispatch through those
+same native Orca runtimes in the main process, even when the Canvas view is hidden. A
+network node must also be connected to the browser it observes. Terminal nodes use
+Orca's native PTY bridge; notes, todos, and timers are durable main-process Canvas state,
+persisted atomically with a revision fence and guarded by the same edge.
+
+Canvas node calls are live bridge operations; they are not agent-status hooks and do not
+require MCP.
+
 If Orca is not running, start it:
 
 ```text

@@ -36,6 +36,13 @@
     border-color 0.18s ease;
 }
 
+/* Electron guests can swallow pointerup when a React Flow gesture crosses
+   their surface. Shield them only until move/resize/connect releases. */
+.crew-canvas-root[data-pointer-interaction='true'] .crew-browser-interaction-shield {
+  pointer-events: auto;
+  cursor: grabbing;
+}
+
 /* Why: xyflow's dark colorMode paints .react-flow a flat gray (20,20,20) that
    covers the Orca near-black surface — let the root background show through. */
 .crew-canvas-root .react-flow {

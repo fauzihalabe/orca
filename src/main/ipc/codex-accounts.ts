@@ -1,9 +1,26 @@
-import { ipcMain } from 'electron'
+import { BrowserWindow, ipcMain } from 'electron'
 import type { CodexAccountAddTarget, CodexAccountService } from '../codex-accounts/service'
 import type { CodexAccountSelectionTarget } from '../codex-accounts/runtime-selection'
 import { listRecordedCodexPaneLanes } from '../codex/codex-pane-account-registry'
 import { forgetStaleCodexPanes, listStaleCodexPanes } from '../codex/codex-stale-pane-accounts'
 import type { GlobalSettings } from '../../shared/types'
+import type { CodexRateLimitAccountsState } from '../../shared/types'
+
+function publishCodexAccountsChanged(state: CodexRateLimitAccountsState): void {
+  for (const window of BrowserWindow.getAllWindows()) {
+    if (!window.isDestroyed() && !window.webContents.isDestroyed()) {
+      window.webContents.send('codexAccounts:changed', state)
+    }
+  }
+}
+
+async function mutateCodexAccounts(
+  operation: () => Promise<CodexRateLimitAccountsState>
+): Promise<CodexRateLimitAccountsState> {
+  const state = await operation()
+  publishCodexAccountsChanged(state)
+  return state
+}
 
 export function registerCodexAccountHandlers(
   codexAccounts: CodexAccountService,
@@ -36,13 +53,13 @@ export function registerCodexAccountHandlers(
   })
   ipcMain.handle('codexAccounts:list', () => codexAccounts.listAccounts())
   ipcMain.handle('codexAccounts:add', (_event, args?: CodexAccountAddTarget) =>
-    codexAccounts.addAccount(args)
+    mutateCodexAccounts(() => codexAccounts.addAccount(args))
   )
   ipcMain.handle('codexAccounts:reauthenticate', (_event, args: { accountId: string }) =>
-    codexAccounts.reauthenticateAccount(args.accountId)
+    mutateCodexAccounts(() => codexAccounts.reauthenticateAccount(args.accountId))
   )
   ipcMain.handle('codexAccounts:remove', (_event, args: { accountId: string }) =>
-    codexAccounts.removeAccount(args.accountId)
+    mutateCodexAccounts(() => codexAccounts.removeAccount(args.accountId))
   )
   ipcMain.handle(
     'codexAccounts:select',
@@ -51,9 +68,9 @@ export function registerCodexAccountHandlers(
         // Why: older renderer surfaces selected by account id only. Let the
         // service infer the account's runtime instead of treating missing
         // runtime as Windows/host and rejecting valid WSL accounts.
-        return codexAccounts.selectAccount(args.accountId)
+        return mutateCodexAccounts(() => codexAccounts.selectAccount(args.accountId))
       }
-      return codexAccounts.selectAccountForTarget(args.accountId, args)
+      return mutateCodexAccounts(() => codexAccounts.selectAccountForTarget(args.accountId, args))
     }
   )
 }

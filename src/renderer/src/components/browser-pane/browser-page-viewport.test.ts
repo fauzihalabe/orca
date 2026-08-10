@@ -7,6 +7,7 @@ import {
   getBrowserPageViewportContainer,
   parkBrowserPageViewport,
   registerBrowserOverlaySlotViewport,
+  unregisterBrowserOverlaySlotViewport,
   removeBrowserPageViewport,
   syncBrowserPageChromeInset
 } from './browser-page-viewport'
@@ -30,6 +31,17 @@ afterEach(() => {
 })
 
 describe('ensureBrowserPageViewport', () => {
+  it('does not let an old owner unregister a replacement slot root', () => {
+    const oldRoot = mountSlotViewport('workspace-1')
+    const newRoot = document.createElement('div')
+    document.body.appendChild(newRoot)
+    registerBrowserOverlaySlotViewport('workspace-1', newRoot)
+
+    unregisterBrowserOverlaySlotViewport('workspace-1', oldRoot)
+
+    expect(getBrowserOverlaySlotViewport('workspace-1')).toBe(newRoot)
+  })
+
   it('creates a flex viewport with chrome inset and container under the slot root', () => {
     const root = mountSlotViewport('workspace-1')
     const viewport = ensureBrowserPageViewport('page-1', 'workspace-1')

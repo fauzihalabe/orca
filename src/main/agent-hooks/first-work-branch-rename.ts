@@ -91,6 +91,15 @@ function rememberSettledWorktreeId(worktreeId: string): void {
   }
 }
 
+function isNotGitRepositoryError(error: unknown): boolean {
+  if (!error || typeof error !== 'object') {
+    return false
+  }
+  const message = error instanceof Error ? error.message : ''
+  const stderr = 'stderr' in error ? String((error as { stderr?: unknown }).stderr ?? '') : ''
+  return `${message}\n${stderr}`.toLowerCase().includes('not a git repository')
+}
+
 export async function maybeAutoRenameBranchOnFirstWork(
   event: FirstWorkBranchRenameEvent,
   deps: FirstWorkBranchRenameDeps
@@ -179,7 +188,18 @@ async function runAutoRename(
     ? (args) => provider.exec(args, worktreePath)
     : (args) => gitExecFileAsync(args, { cwd: worktreePath })
 
-  const currentBranch = (await exec(['rev-parse', '--abbrev-ref', 'HEAD'])).stdout.trim()
+  let currentBranch: string
+  try {
+    currentBranch = (await exec(['rev-parse', '--abbrev-ref', 'HEAD'])).stdout.trim()
+  } catch (error) {
+    // Canvas agents can intentionally run in arbitrary folders such as
+    // ~/Downloads. That is a permanent ineligibility, not a failed branch
+    // rename worth retrying and printing on every agent turn.
+    if (isNotGitRepositoryError(error)) {
+      return stop('workspace is not a git repository', true)
+    }
+    throw error
+  }
   if (!currentBranch || currentBranch === 'HEAD') {
     return retry(`no checked-out branch (${currentBranch || 'empty'})`)
   }

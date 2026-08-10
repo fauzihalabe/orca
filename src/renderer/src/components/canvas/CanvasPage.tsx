@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   Background,
   BackgroundVariant,
+  ConnectionMode,
   ReactFlow,
   ReactFlowProvider,
   applyEdgeChanges,
@@ -18,6 +19,11 @@ import {
 import '@xyflow/react/dist/style.css'
 import './canvas.css'
 import type { CrewCanvasNode } from './canvas-store'
+import {
+  hydrateCrewCanvasFromMain,
+  installCrewCanvasMainUpdates,
+  syncCrewCanvasTab
+} from './canvas-main-sync'
 import {
   CanvasTabProvider,
   useCanvasActions,
@@ -38,6 +44,7 @@ import { installCrewAskListener } from './crew-ask-listener'
 import { CreatePalette, type PaletteKind } from './create-palette'
 import { EdgeStyleSwitcher } from './edge-style-switcher'
 import { useRubberBand } from './use-rubber-band'
+import { useAppStore } from '@/store'
 
 const nodeTypes: NodeTypes = {
   agent: AgentNode,
@@ -72,17 +79,56 @@ function isEditableTarget(target: EventTarget | null): boolean {
 }
 
 function CanvasSurface() {
-  const { worktreePath, active } = useCanvasTab()
-  const { nodes, edges } = useCanvasGraph()
+  const { tabId, worktreeId, worktreePath, active } = useCanvasTab()
+  const defaultTuiAgent = useAppStore((state) => state.settings?.defaultTuiAgent)
+  const graph = useCanvasGraph()
+  const { nodes, edges } = graph
   const actions = useCanvasActions()
   const readGraph = useCanvasGraphReader()
   const { screenToFlowPosition } = useReactFlow()
   const activeRef = useRef(active)
+  const rootRef = useRef<HTMLDivElement>(null)
   activeRef.current = active
 
   useEffect(() => {
-    installCrewAskListener()
+    const releaseInteractionShield = (): void => {
+      rootRef.current?.removeAttribute('data-pointer-interaction')
+    }
+    window.addEventListener('pointerup', releaseInteractionShield, true)
+    window.addEventListener('pointercancel', releaseInteractionShield, true)
+    window.addEventListener('blur', releaseInteractionShield)
+    return () => {
+      window.removeEventListener('pointerup', releaseInteractionShield, true)
+      window.removeEventListener('pointercancel', releaseInteractionShield, true)
+      window.removeEventListener('blur', releaseInteractionShield)
+    }
   }, [])
+
+  const shieldNativeGuestsDuringPointerGesture = useCallback(
+    (event: React.PointerEvent<HTMLDivElement>) => {
+      const target = event.target
+      if (
+        target instanceof Element &&
+        !target.closest('.nodrag') &&
+        target.closest('.drag-handle, .react-flow__resize-control, .react-flow__handle')
+      ) {
+        rootRef.current?.setAttribute('data-pointer-interaction', 'true')
+      }
+    },
+    []
+  )
+
+  useEffect(() => {
+    installCrewAskListener()
+    installCrewCanvasMainUpdates()
+    void hydrateCrewCanvasFromMain()
+  }, [])
+
+  useEffect(() => {
+    // The renderer remains a responsive React Flow cache; the main process
+    // receives every committed graph and fences stale writes by revision.
+    void syncCrewCanvasTab(tabId, worktreeId, graph)
+  }, [graph, tabId, worktreeId])
 
   const onNodesChange = useCallback(
     (changes: NodeChange<CrewCanvasNode>[]) => {
@@ -130,19 +176,26 @@ function CanvasSurface() {
     return () => window.removeEventListener('keydown', onKey)
   }, [actions, readGraph])
 
-  // A connection is a capability, not a drawing: only meaningful pairs link.
+  // A connection is a capability, not a drawing: agents may connect to every
+  // resource, and a network node may connect to the browser it observes.
   const isValidConnection = useCallback(
     (conn: Connection | Edge) => {
       if (!conn.source || !conn.target || conn.source === conn.target) {
         return false
       }
       const g = readGraph()
-      if (g.edges.some((e) => e.source === conn.source && e.target === conn.target)) {
+      if (
+        g.edges.some(
+          (e) =>
+            (e.source === conn.source && e.target === conn.target) ||
+            (e.source === conn.target && e.target === conn.source)
+        )
+      ) {
         return false
       }
       const kindOf = (nodeId: string) => g.nodes.find((n) => n.id === nodeId)?.data.kind
       const pair = [kindOf(conn.source), kindOf(conn.target)]
-      return pair.includes('agent')
+      return pair.includes('agent') || (pair.includes('browser') && pair.includes('network'))
     },
     [readGraph]
   )
@@ -205,19 +258,27 @@ function CanvasSurface() {
         width: size.width,
         height: size.height,
         data: {
-          ...(kind === 'agent' ? { kind, agentKind: 'claude' } : { kind }),
+          ...(kind === 'agent'
+            ? {
+                kind,
+                agentKind:
+                  defaultTuiAgent && defaultTuiAgent !== 'blank' ? defaultTuiAgent : 'claude'
+              }
+            : { kind }),
           ...(cwd ? { cwd } : {})
         }
       })
       setPalette(null)
     },
-    [actions, palette, screenToFlowPosition, worktreePath]
+    [actions, defaultTuiAgent, palette, screenToFlowPosition, worktreePath]
   )
 
   return (
     <div
+      ref={rootRef}
       className="crew-canvas-root h-full w-full"
       style={{ background: 'var(--background)', position: 'relative' }}
+      onPointerDownCapture={shieldNativeGuestsDuringPointerGesture}
     >
       <ReactFlow
         nodes={nodes}
@@ -229,6 +290,7 @@ function CanvasSurface() {
         onConnect={onConnect}
         isValidConnection={isValidConnection}
         connectionRadius={42}
+        connectionMode={ConnectionMode.Loose}
         edgeTypes={edgeTypes}
         defaultEdgeOptions={{ type: 'crew', interactionWidth: 24 }}
         zoomOnDoubleClick={false}

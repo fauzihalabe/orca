@@ -24,7 +24,8 @@ describe('parseWorkspaceSession sleeping agents', () => {
           lastAssistantMessage: 'done',
           launchConfig: {
             agentArgs: '',
-            agentEnv: {}
+            agentEnv: {},
+            managedAccountId: 'account-canvas-2'
           },
           origin: 'live'
         }
@@ -36,7 +37,8 @@ describe('parseWorkspaceSession sleeping agents', () => {
       expect(result.value.sleepingAgentSessionsByPaneKey?.['tab1:pane-1']?.origin).toBe('live')
       expect(result.value.sleepingAgentSessionsByPaneKey?.['tab1:pane-1']?.launchConfig).toEqual({
         agentArgs: '',
-        agentEnv: {}
+        agentEnv: {},
+        managedAccountId: 'account-canvas-2'
       })
     }
   })

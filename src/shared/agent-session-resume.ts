@@ -36,6 +36,10 @@ export type SleepingAgentLaunchConfig = {
   agentCommand?: string
   agentArgs: string
   agentEnv: Record<string, string>
+  /** Explicit Orca-managed provider account pinned to this native pane.
+   *  Undefined follows Orca's current workspace/runtime selection; null pins
+   *  the provider's system-default account. */
+  managedAccountId?: string | null
   ompResumeFilePath?: string
 }
 

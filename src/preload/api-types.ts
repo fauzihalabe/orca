@@ -8,6 +8,11 @@ import type {
   HostedReviewInfo,
   HostedReviewProvider
 } from '../shared/hosted-review'
+import type {
+  CrewCanvasPersistedState,
+  CrewCanvasSyncResult,
+  CrewCanvasUpdateEvent
+} from '../shared/crew-canvas'
 import type { NativeFileDropPayload } from '../shared/native-file-drop'
 import type { BrowserFindSource } from '../shared/browser-find-source'
 import type {
@@ -2452,6 +2457,8 @@ export type PreloadApi = {
     listRecordedPaneLanes: (args: { ptyIds: string[] }) => Promise<Record<string, string>>
     /** Drops launch records so a dismissed prompt stays dismissed across restarts. */
     forgetStalePanes: (args: { ptyIds: string[] }) => Promise<void>
+    /** Account roster/selection updates emitted after native Orca account mutations. */
+    onChanged: (callback: (state: CodexRateLimitAccountsState) => void) => () => void
   }
   claudeAccounts: {
     list: () => Promise<ClaudeRateLimitAccountsState>
@@ -2772,7 +2779,18 @@ export type PreloadApi = {
   aiVault: AiVaultApi
   nativeChat: NativeChatApi
   crew: {
-    getBridgeInfo: () => Promise<{ port: number; token: string } | null>
+    getBridgeInfo: (args?: {
+      nodeId?: string
+    }) => Promise<{ port: number; token: string; agentId?: string } | null>
+    getCanvasState: () => Promise<CrewCanvasPersistedState | null>
+    syncCanvas: (args: {
+      tabId: string
+      worktreeId?: string | null
+      graph: unknown
+      baseRevision: number
+    }) => Promise<CrewCanvasSyncResult>
+    removeCanvas: (args: { tabId: string; baseRevision: number }) => Promise<CrewCanvasSyncResult>
+    onCanvasUpdate: (callback: (event: CrewCanvasUpdateEvent) => void) => () => void
     readTempFile: (args: { path: string; deleteAfter?: boolean }) => Promise<string>
     sendAskReply: (args: { requestId: string; text: string }) => void
     onAsk: (

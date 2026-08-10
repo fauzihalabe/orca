@@ -13,10 +13,15 @@ type MockAppState = {
   focusGroup: (worktreeId: string, groupId: string) => void
 }
 
+type MockCanvasState = {
+  canvases: Record<string, { nodes: { id: string; data: Record<string, unknown> }[] }>
+}
+
 const mocks = vi.hoisted(() => ({
   state: null as MockAppState | null,
   automationVisiblePageIds: new Set<string>(),
   mobileDrivenPageIds: new Set<string>(),
+  canvasState: { canvases: {} } as MockCanvasState,
   focusGroup: vi.fn()
 }))
 
@@ -37,6 +42,10 @@ vi.mock('./browser-automation-visibility', () => ({
 vi.mock('@/lib/pane-manager/browser-mobile-driver-state', () => ({
   useBrowserMobileDriverForAny: (pageIds: readonly string[]) =>
     pageIds.some((pageId) => mocks.mobileDrivenPageIds.has(pageId))
+}))
+
+vi.mock('../canvas/canvas-store', () => ({
+  useCrewCanvas: (selector: (state: MockCanvasState) => unknown) => selector(mocks.canvasState)
 }))
 
 vi.mock('./BrowserPane', () => ({
@@ -63,6 +72,7 @@ describe('BrowserPaneOverlayLayer', () => {
   beforeEach(() => {
     mocks.automationVisiblePageIds.clear()
     mocks.mobileDrivenPageIds.clear()
+    mocks.canvasState = { canvases: {} }
     mocks.focusGroup.mockClear()
     mocks.state = createState()
   })
@@ -154,6 +164,57 @@ describe('BrowserPaneOverlayLayer', () => {
     expect(markup).toContain('data-browser-pane-active="true"')
     expect(markup).toContain('data-browser-pane-id="browser-b"')
     expect(markup).toContain('data-browser-pane-active="false"')
+  })
+
+  it('hands the native workspace to an active Canvas browser node without a duplicate pane', () => {
+    const canvasTab: Tab = {
+      id: 'canvas-tab',
+      entityId: 'canvas-tab',
+      groupId: 'group-1',
+      worktreeId: 'wt-1',
+      contentType: 'canvas',
+      label: 'Canvas',
+      customLabel: null,
+      color: null,
+      sortOrder: 2,
+      createdAt: 3
+    }
+    mocks.state!.unifiedTabsByWorktree['wt-1'] = [
+      ...mocks.state!.unifiedTabsByWorktree['wt-1'],
+      canvasTab
+    ]
+    mocks.state!.groupsByWorktree['wt-1'][0]!.activeTabId = canvasTab.id
+    mocks.canvasState = {
+      canvases: {
+        'canvas-tab': {
+          nodes: [
+            { id: 'browser-node', data: { kind: 'browser', browserWorkspaceId: 'browser-a' } }
+          ]
+        }
+      }
+    }
+
+    const markup = renderOverlay({ isWorktreeActive: true })
+
+    expect(markup).not.toContain('data-browser-pane-id="browser-a"')
+    expect(markup).not.toContain('data-browser-overlay-tab-id="browser-a"')
+    expect(markup).toContain('data-browser-pane-id="browser-b"')
+  })
+
+  it('returns the same native workspace to the Orca overlay when the Canvas is inactive', () => {
+    mocks.canvasState = {
+      canvases: {
+        'canvas-tab': {
+          nodes: [
+            { id: 'browser-node', data: { kind: 'browser', browserWorkspaceId: 'browser-a' } }
+          ]
+        }
+      }
+    }
+
+    const markup = renderOverlay({ isWorktreeActive: true })
+
+    expect(markup).toContain('data-browser-pane-id="browser-a"')
   })
 
   it('marks the active browser pane focused when its own group holds focus', () => {

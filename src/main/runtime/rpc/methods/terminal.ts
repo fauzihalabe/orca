@@ -934,6 +934,7 @@ const TerminalCreateParams = z.object({
       agentCommand: z.string().optional(),
       agentArgs: z.string(),
       agentEnv: z.record(z.string(), z.string()),
+      managedAccountId: z.string().trim().min(1).nullable().optional(),
       ompResumeFilePath: z
         .string()
         .min(1)

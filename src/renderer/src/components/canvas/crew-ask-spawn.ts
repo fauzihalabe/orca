@@ -7,15 +7,18 @@ import { useCrewCanvas, type CrewCanvasNode, type CrewCanvasNodeData } from './c
 
 type SpawnableKind = Extract<
   CrewCanvasNodeData['kind'],
-  'agent' | 'browser' | 'terminal' | 'note' | 'todo'
+  'agent' | 'browser' | 'terminal' | 'simulator' | 'network' | 'note' | 'todo' | 'timer'
 >
 
 const SPAWN_SIZES: Record<SpawnableKind, { width: number; height: number }> = {
   agent: { width: 560, height: 380 },
   browser: { width: 560, height: 460 },
   terminal: { width: 520, height: 340 },
+  simulator: { width: 400, height: 640 },
+  network: { width: 480, height: 360 },
   note: { width: 260, height: 220 },
-  todo: { width: 280, height: 300 }
+  todo: { width: 280, height: 300 },
+  timer: { width: 220, height: 220 }
 }
 
 function isSpawnableKind(kind: string): kind is SpawnableKind {
@@ -78,17 +81,31 @@ export function describeCapabilities(
     const kind = String(node.data.kind)
     const label = String(node.data.label ?? node.data.agentKind ?? kind)
     if (kind === 'agent') {
-      lines.push(`- agent "${label}" → ask {"to":"${label}","message":"..."}`)
+      lines.push(`- agent "${label}" (node ${node.id}) → ask {"to":"${node.id}","message":"..."}`)
     } else if (kind === 'browser') {
       lines.push(
-        '- browser → browser.navigate {"url"}, browser.read, browser.click {"selector"}, browser.fill {"selector","value"}, browser.eval {"js"}'
+        `- browser "${label}" (node ${node.id}) → todas as ferramentas nativas \`browser.*\` do Orca (ex.: browser.goto, browser.snapshot, browser.click, browser.fill, browser.eval, browser.screenshot, browser.network); página nativa \`${typeof node.data.browserPageId === 'string' && node.data.browserPageId.trim() ? node.data.browserPageId : `canvas-${node.id}`}\` → \`orca snapshot --page ${typeof node.data.browserPageId === 'string' && node.data.browserPageId.trim() ? node.data.browserPageId : `canvas-${node.id}`} --json\``
       )
     } else if (kind === 'terminal') {
-      lines.push('- terminal → terminal.run {"command"}')
+      lines.push(`- terminal "${label}" (node ${node.id}) → terminal.run {"command"}`)
     } else if (kind === 'note') {
-      lines.push('- note → note.read, note.write {"text"}')
+      lines.push(`- note "${label}" (node ${node.id}) → note.read, note.write {"text"}`)
     } else if (kind === 'todo') {
-      lines.push('- todo → todo.list, todo.add {"text"}, todo.toggle {"itemId"}')
+      lines.push(
+        `- todo "${label}" (node ${node.id}) → todo.list, todo.add {"text"}, todo.toggle {"itemId"}`
+      )
+    } else if (kind === 'simulator') {
+      lines.push(
+        `- simulator "${label}" (node ${node.id}) → simulator.tap {"x","y"}, simulator.type {"text"}, simulator.gesture {"points"}, simulator.button {"name"}, simulator.rotate {"orientation"}, simulator.ax, simulator.logcat; executado pelo runtime nativo do Orca`
+      )
+    } else if (kind === 'network') {
+      lines.push(
+        `- network "${label}" (node ${node.id}) → network.read; precisa também de uma linha desse network para um browser conectado`
+      )
+    } else if (kind === 'timer') {
+      lines.push(
+        `- timer "${label}" (node ${node.id}) → timer.read, timer.start {"minutes"|"ms"}, timer.pause, timer.reset`
+      )
     } else {
       lines.push(`- ${kind} "${label}" (sem tools diretas)`)
     }
@@ -97,7 +114,8 @@ export function describeCapabilities(
   return (
     `Conectados agora:\n${body}\n\n` +
     'Spawn (sempre disponíveis, o node nasce conectado): terminal.spawn, browser.spawn {"url"?}, ' +
-    'agent.spawn {"agentKind":"claude"|"codex"|"kimi","label","role"?}, note.spawn {"text"?}, todo.spawn.\n' +
+    'agent.spawn {"agentKind":"claude"|"codex"|"kimi","label","role"?}, note.spawn {"text"?}, todo.spawn, ' +
+    'timer.spawn, simulator.spawn, network.spawn. Network também precisa ser ligado a um browser.\n' +
     'Orquestração nativa: tool "orchestrate" {"objective","tasks"?,"workers"?} — cria um Run do Orca e despacha seus conectados.\n' +
     'Canvas inteiro: tool "graph".'
   )
