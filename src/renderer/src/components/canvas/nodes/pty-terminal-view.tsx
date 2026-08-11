@@ -14,6 +14,7 @@ import {
 } from './canvas-agent-session'
 import { CREW_SPAWN_ENV_TO_DELETE } from '../crew-spawn-env'
 import { subscribeToPtyData } from '@/components/terminal-pane/pty-data-sidecar-subscriptions'
+import { buildCanvasTerminalTheme, useCanvasColorMode } from '../canvas-theme'
 
 // Plain Canvas terminal — the visible xterm is only a viewport. The native
 // Orca TerminalTab owns the PTY, stable pane identity, persistence and mobile
@@ -38,7 +39,9 @@ export function PtyTerminalView({
   onSessionReady: (mirror: CanvasAgentMirror, sessionId?: string) => void
 }) {
   const containerRef = useRef<HTMLDivElement>(null)
+  const termRef = useRef<Terminal | null>(null)
   const [spawnError, setSpawnError] = useState<string | null>(null)
+  const colorMode = useCanvasColorMode()
 
   useEffect(() => {
     const container = containerRef.current
@@ -48,7 +51,7 @@ export function PtyTerminalView({
     const term = new Terminal({
       fontSize: 11,
       fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
-      theme: { background: '#0b0b0d' },
+      theme: buildCanvasTerminalTheme(),
       cursorBlink: true,
       scrollback: 5000,
       convertEol: true
@@ -57,6 +60,7 @@ export function PtyTerminalView({
     term.loadAddon(fit)
     term.open(container)
     fit.fit()
+    termRef.current = term
 
     let disposed = false
     let removeDataListener: (() => void) | null = null
@@ -209,13 +213,26 @@ export function PtyTerminalView({
       // Do not kill here: native TerminalTab owns the PTY. Explicit Canvas
       // node deletion closes that tab through canvas-store cleanup.
       term.dispose()
+      termRef.current = null
     }
   }, [command, cwd, label, nodeId, onSessionReady, sessionId, tabId, worktreeId])
+
+  useEffect(() => {
+    const term = termRef.current
+    if (term) {
+      term.options.theme = buildCanvasTerminalTheme()
+    }
+  }, [colorMode])
 
   return (
     <div
       className="nodrag nowheel"
-      style={{ flex: 1, minHeight: 0, background: '#0b0b0d', position: 'relative' }}
+      style={{
+        flex: 1,
+        minHeight: 0,
+        background: 'var(--crew-canvas-terminal-background)',
+        position: 'relative'
+      }}
     >
       {spawnError ? (
         <div
@@ -225,7 +242,7 @@ export function PtyTerminalView({
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
-            color: '#ff7a7a',
+            color: 'var(--crew-canvas-error)',
             fontSize: 11,
             padding: 12,
             textAlign: 'center'

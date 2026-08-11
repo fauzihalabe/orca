@@ -38,7 +38,7 @@ export function AgentNodeHeader({
     background: 'transparent',
     border: 'none',
     outline: 'none',
-    color: 'rgba(255,255,255,0.85)',
+    color: 'var(--crew-canvas-node-foreground)',
     fontSize: 11.5,
     fontWeight: 600,
     padding: 0,
@@ -53,13 +53,13 @@ export function AgentNodeHeader({
         alignItems: 'center',
         gap: 7,
         padding: '7px 10px',
-        borderBottom: '1px solid rgba(255,255,255,0.07)',
-        background: 'rgba(255,255,255,0.03)',
+        borderBottom: '1px solid var(--crew-canvas-node-header-border)',
+        background: 'var(--crew-canvas-node-header)',
         cursor: 'grab',
         userSelect: 'none'
       }}
     >
-      <Bot size={13} style={{ color: '#7aa2ff', flexShrink: 0 }} />
+      <Bot size={13} style={{ color: 'var(--crew-canvas-primary)', flexShrink: 0 }} />
       {editingLabel ? (
         <input
           autoFocus
@@ -85,7 +85,7 @@ export function AgentNodeHeader({
         <span
           className="nodrag"
           onPointerDown={(event) => event.stopPropagation()}
-          style={{ fontSize: 11.5, fontWeight: 600, color: 'rgba(255,255,255,0.85)' }}
+          style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--crew-canvas-node-foreground)' }}
           onDoubleClick={(event) => {
             event.stopPropagation()
             setEditingLabel(true)
@@ -145,7 +145,7 @@ export function AgentNodeHeader({
           style={{
             fontSize: 10.5,
             fontStyle: 'italic',
-            color: role ? 'rgba(170,200,255,0.75)' : 'rgba(255,255,255,0.28)',
+            color: role ? 'var(--crew-canvas-primary)' : 'var(--crew-canvas-node-muted)',
             overflow: 'hidden',
             textOverflow: 'ellipsis',
             whiteSpace: 'nowrap',
@@ -189,9 +189,9 @@ export function AgentNodeHeader({
           style={{
             fontSize: 10,
             fontWeight: 600,
-            color: 'rgba(255,255,255,0.55)',
-            background: 'rgba(255,255,255,0.06)',
-            border: '1px solid rgba(255,255,255,0.1)',
+            color: 'var(--crew-canvas-node-muted)',
+            background: 'var(--crew-canvas-control-background)',
+            border: '1px solid var(--crew-canvas-control-border)',
             borderRadius: 6,
             padding: '2px 5px',
             outline: 'none',

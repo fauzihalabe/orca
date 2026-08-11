@@ -4,7 +4,7 @@ const PICKER_JS = String.raw`
   window.__crewPicker = true
   let current = null
   const box = document.createElement('div')
-  box.style.cssText = 'position:fixed;z-index:2147483647;pointer-events:none;border:2px solid #4d8dff;background:rgba(77,141,255,0.12);border-radius:4px;display:none'
+  box.style.cssText = 'position:fixed;z-index:2147483647;pointer-events:none;border:2px solid var(--ring);background:color-mix(in srgb, var(--ring) 12%, transparent);border-radius:4px;display:none'
   document.documentElement.appendChild(box)
   const onMove = (e) => {
     const el = document.elementFromPoint(e.clientX, e.clientY)

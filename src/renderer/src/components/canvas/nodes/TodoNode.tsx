@@ -1,23 +1,55 @@
-import { memo, useState } from 'react'
+import { memo, useEffect, useRef, useState } from 'react'
 import { Handle, NodeResizer, Position, type NodeProps } from '@xyflow/react'
-import { ListChecks, Plus, X } from 'lucide-react'
+import { Check, Copy, ListChecks, Plus, X } from 'lucide-react'
 import type { CrewCanvasNodeData } from '../canvas-store'
 import { useCrewCanvasTab } from '../canvas-store'
 import { useCanvasTab } from '../canvas-tab-context'
 import { translate } from '@/i18n/i18n'
-
-type TodoItem = { id: string; text: string; done: boolean }
+import { formatTodoClipboardText, type TodoItem } from './todo-content'
 
 // Todo node — a living checklist persisted in the graph (agents read/patch it
 // when wired as context).
 export const TodoNode = memo(function TodoNode({ id, data, selected }: NodeProps) {
-  const d = data as CrewCanvasNodeData & { title?: string; items?: TodoItem[] }
+  const d = data as CrewCanvasNodeData & {
+    label?: string
+    title?: string
+    items?: TodoItem[]
+  }
   const items = d.items ?? []
   const tabId = useCanvasTab().tabId
   const updateNodeData = useCrewCanvasTab(tabId, (s) => s.updateNodeData)
   const [draft, setDraft] = useState('')
+  const [copied, setCopied] = useState(false)
+  const copyResetRef = useRef<number | null>(null)
+  const title =
+    d.label?.trim() || d.title?.trim() || translate('auto.components.canvas.TodoNode.title', 'todo')
+
+  useEffect(
+    () => () => {
+      if (copyResetRef.current !== null) {
+        window.clearTimeout(copyResetRef.current)
+      }
+    },
+    []
+  )
 
   const commit = (next: TodoItem[]) => updateNodeData(id, { items: next })
+
+  const handleCopy = async (): Promise<void> => {
+    try {
+      await window.api.ui.writeClipboardText(formatTodoClipboardText(title, items))
+      setCopied(true)
+      if (copyResetRef.current !== null) {
+        window.clearTimeout(copyResetRef.current)
+      }
+      copyResetRef.current = window.setTimeout(() => {
+        copyResetRef.current = null
+        setCopied(false)
+      }, 1400)
+    } catch {
+      setCopied(false)
+    }
+  }
 
   return (
     <div
@@ -27,21 +59,26 @@ export const TodoNode = memo(function TodoNode({ id, data, selected }: NodeProps
         height: '100%',
         display: 'flex',
         flexDirection: 'column',
-        background: '#10131a',
-        border: `1px solid ${selected ? 'rgba(122,162,255,0.7)' : 'rgba(255,255,255,0.09)'}`,
+        background: 'var(--crew-canvas-node-surface)',
+        border: `1px solid ${selected ? 'var(--crew-canvas-primary)' : 'var(--crew-canvas-node-border)'}`,
         borderRadius: 12,
         overflow: 'hidden',
         boxShadow: selected
-          ? '0 0 0 3px rgba(122,162,255,0.15), 0 12px 32px rgba(0,0,0,0.5)'
-          : '0 8px 24px rgba(0,0,0,0.4)'
+          ? 'var(--crew-canvas-node-selected-shadow)'
+          : 'var(--crew-canvas-node-shadow)'
       }}
     >
       <NodeResizer
         isVisible={selected === true}
         minWidth={200}
         minHeight={140}
-        lineStyle={{ borderColor: 'rgba(122,162,255,0.4)' }}
-        handleStyle={{ width: 8, height: 8, borderRadius: 2, background: 'rgba(122,162,255,0.75)' }}
+        lineStyle={{ borderColor: 'var(--crew-canvas-primary-soft)' }}
+        handleStyle={{
+          width: 8,
+          height: 8,
+          borderRadius: 2,
+          background: 'var(--crew-canvas-handle)'
+        }}
       />
       <div
         className="crew-node-header drag-handle"
@@ -50,17 +87,55 @@ export const TodoNode = memo(function TodoNode({ id, data, selected }: NodeProps
           alignItems: 'center',
           gap: 7,
           padding: '7px 10px',
-          borderBottom: '1px solid rgba(255,255,255,0.07)',
-          background: 'rgba(255,255,255,0.03)',
+          borderBottom: '1px solid var(--crew-canvas-node-header-border)',
+          background: 'var(--crew-canvas-node-header)',
           cursor: 'grab',
           userSelect: 'none'
         }}
       >
-        <ListChecks size={13} style={{ color: '#7aa2ff', flexShrink: 0 }} />
-        <span style={{ fontSize: 11.5, fontWeight: 600, color: 'rgba(255,255,255,0.85)' }}>
-          {d.title || translate('auto.components.canvas.TodoNode.title', 'todo')}
+        <ListChecks size={13} style={{ color: 'var(--crew-canvas-primary)', flexShrink: 0 }} />
+        <span
+          title={title}
+          style={{
+            minWidth: 0,
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap',
+            fontSize: 11.5,
+            fontWeight: 600,
+            color: 'var(--crew-canvas-node-foreground)'
+          }}
+        >
+          {title}
         </span>
-        <span style={{ marginLeft: 'auto', fontSize: 10, color: 'rgba(255,255,255,0.35)' }}>
+        <button
+          className="nodrag"
+          type="button"
+          onClick={() => void handleCopy()}
+          aria-label={
+            copied
+              ? translate('auto.components.canvas.TodoNode.copied', 'copied')
+              : translate('auto.components.canvas.TodoNode.copy', 'copy todo content')
+          }
+          title={
+            copied
+              ? translate('auto.components.canvas.TodoNode.copied', 'copied')
+              : translate('auto.components.canvas.TodoNode.copy', 'copy todo content')
+          }
+          style={{
+            marginLeft: 'auto',
+            background: 'transparent',
+            border: 'none',
+            color: copied ? 'var(--crew-canvas-primary)' : 'var(--crew-canvas-node-muted)',
+            cursor: 'pointer',
+            padding: 2,
+            display: 'inline-flex',
+            flexShrink: 0
+          }}
+        >
+          {copied ? <Check size={11} /> : <Copy size={11} />}
+        </button>
+        <span style={{ fontSize: 10, color: 'var(--crew-canvas-node-muted)' }}>
           {items.filter((i) => i.done).length}/{items.length}
         </span>
       </div>
@@ -79,13 +154,20 @@ export const TodoNode = memo(function TodoNode({ id, data, selected }: NodeProps
               onChange={() =>
                 commit(items.map((i) => (i.id === item.id ? { ...i, done: !i.done } : i)))
               }
-              style={{ accentColor: '#7aa2ff', margin: 0, cursor: 'pointer', flexShrink: 0 }}
+              style={{
+                accentColor: 'var(--crew-canvas-primary)',
+                margin: 0,
+                cursor: 'pointer',
+                flexShrink: 0
+              }}
             />
             <span
               style={{
                 flex: 1,
                 fontSize: 11.5,
-                color: item.done ? 'rgba(255,255,255,0.32)' : 'rgba(255,255,255,0.85)',
+                color: item.done
+                  ? 'var(--crew-canvas-node-muted)'
+                  : 'var(--crew-canvas-node-foreground)',
                 textDecoration: item.done ? 'line-through' : 'none',
                 wordBreak: 'break-word'
               }}
@@ -98,7 +180,7 @@ export const TodoNode = memo(function TodoNode({ id, data, selected }: NodeProps
               style={{
                 background: 'transparent',
                 border: 'none',
-                color: 'rgba(255,255,255,0.25)',
+                color: 'var(--crew-canvas-node-muted)',
                 cursor: 'pointer',
                 padding: 2,
                 display: 'inline-flex'
@@ -120,7 +202,7 @@ export const TodoNode = memo(function TodoNode({ id, data, selected }: NodeProps
           }}
           style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 4 }}
         >
-          <Plus size={12} style={{ color: 'rgba(255,255,255,0.3)', flexShrink: 0 }} />
+          <Plus size={12} style={{ color: 'var(--crew-canvas-node-muted)', flexShrink: 0 }} />
           <input
             value={draft}
             onChange={(event) => setDraft(event.target.value)}
@@ -131,14 +213,22 @@ export const TodoNode = memo(function TodoNode({ id, data, selected }: NodeProps
               border: 'none',
               outline: 'none',
               fontSize: 11.5,
-              color: 'rgba(255,255,255,0.85)',
+              color: 'var(--crew-canvas-node-foreground)',
               padding: '3px 0'
             }}
           />
         </form>
       </div>
-      <Handle type="target" position={Position.Left} style={{ width: 8, height: 8 }} />
-      <Handle type="source" position={Position.Right} style={{ width: 8, height: 8 }} />
+      <Handle
+        type="target"
+        position={Position.Left}
+        style={{ width: 8, height: 8, background: 'var(--crew-canvas-handle)' }}
+      />
+      <Handle
+        type="source"
+        position={Position.Right}
+        style={{ width: 8, height: 8, background: 'var(--crew-canvas-handle)' }}
+      />
     </div>
   )
 })

@@ -1,9 +1,8 @@
 import { memo, useEffect, useRef, useState } from 'react'
-import { Handle, NodeResizer, Position, type NodeProps } from '@xyflow/react'
+import type { NodeProps } from '@xyflow/react'
 import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import '@xterm/xterm/css/xterm.css'
-import { CircleAlert } from 'lucide-react'
 import type { CrewCanvasNodeData } from '../canvas-store'
 import { getCrewCanvas, useCrewCanvasTab } from '../canvas-store'
 import { startSessionCapture } from './agent-session-capture'
@@ -18,9 +17,10 @@ import { CREW_SPAWN_ENV_TO_DELETE } from '../crew-spawn-env'
 import { useCanvasTab } from '../canvas-tab-context'
 import { attachCrewTermClipboard, attachCrewTermFileDrop } from './crew-term-clipboard'
 import { buildAgentCommand, type PeerInfo } from './agent-command'
-import { AgentNodeHeader } from './agent-node-header'
+import { buildCanvasTerminalTheme, useCanvasColorMode } from '../canvas-theme'
 import { subscribeToPtyData } from '@/components/terminal-pane/pty-data-sidecar-subscriptions'
 import { parsePaneKey } from '../../../../../shared/stable-pane-id'
+import { AgentNodeSurface } from './agent-node-surface'
 
 // Agent node — spawns a REAL agent CLI in a PTY (Orca's pty:spawn) and renders
 // it with xterm. Node data persists and respawns on mount; a captured CLI
@@ -46,6 +46,7 @@ export const AgentNode = memo(function AgentNode({ id, data, selected }: NodePro
   const termRef = useRef<Terminal | null>(null)
   const ptyIdRef = useRef<string | null>(null)
   const [spawnError, setSpawnError] = useState<string | null>(null)
+  const colorMode = useCanvasColorMode()
 
   useEffect(() => {
     const container = containerRef.current
@@ -55,7 +56,7 @@ export const AgentNode = memo(function AgentNode({ id, data, selected }: NodePro
     const term = new Terminal({
       fontSize: 11,
       fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
-      theme: { background: '#0b0b0d' },
+      theme: buildCanvasTerminalTheme(),
       cursorBlink: true,
       scrollback: 5000,
       convertEol: true
@@ -346,81 +347,43 @@ export const AgentNode = memo(function AgentNode({ id, data, selected }: NodePro
     updateNodeData
   ])
 
+  useEffect(() => {
+    const term = termRef.current
+    if (term) {
+      term.options.theme = buildCanvasTerminalTheme()
+    }
+  }, [colorMode])
+
+  const handleAccountChanged = (managedAccountId?: string | null): void => {
+    const current = getCrewCanvas(tabId).nodes.find((node) => node.id === id)?.data
+    if (current) {
+      closeCanvasAgentMirror(current)
+    }
+    updateNodeData(id, {
+      managedAccountId,
+      cliSessionId: undefined,
+      cliResumeCommand: undefined,
+      paneKey: undefined,
+      mirrorTabId: undefined,
+      mirrorLeafId: undefined,
+      ptySessionId: undefined
+    })
+    setAccountNonce((n) => n + 1)
+  }
+
   return (
-    <div
-      className={`crew-node crew-agent-node${selected ? ' selected' : ''}`}
-      style={{
-        width: '100%',
-        height: '100%',
-        display: 'flex',
-        flexDirection: 'column',
-        background: '#101013',
-        border: `1px solid ${selected ? 'rgba(122,162,255,0.7)' : 'rgba(255,255,255,0.09)'}`,
-        borderRadius: 12,
-        overflow: 'hidden',
-        boxShadow: selected
-          ? '0 0 0 3px rgba(122,162,255,0.15), 0 12px 32px rgba(0,0,0,0.5)'
-          : '0 8px 24px rgba(0,0,0,0.4)'
-      }}
-    >
-      <NodeResizer
-        isVisible={selected === true}
-        minWidth={200}
-        minHeight={140}
-        lineStyle={{ borderColor: 'rgba(122,162,255,0.4)' }}
-        handleStyle={{ width: 8, height: 8, borderRadius: 2, background: 'rgba(122,162,255,0.75)' }}
-      />
-      <AgentNodeHeader
-        id={id}
-        agentKind={agentKind}
-        label={d.label}
-        role={d.role ?? ''}
-        args={d.args}
-        managedAccountId={d.managedAccountId}
-        linearIssueLabel={d.linearIssueLabel}
-        onAccountChanged={(managedAccountId) => {
-          const current = getCrewCanvas(tabId).nodes.find((node) => node.id === id)?.data
-          if (current) {
-            closeCanvasAgentMirror(current)
-          }
-          updateNodeData(id, {
-            managedAccountId,
-            cliSessionId: undefined,
-            cliResumeCommand: undefined,
-            paneKey: undefined,
-            mirrorTabId: undefined,
-            mirrorLeafId: undefined,
-            ptySessionId: undefined
-          })
-          setAccountNonce((n) => n + 1)
-        }}
-      />
-      {spawnError ? (
-        <div
-          style={{
-            flex: 1,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            gap: 6,
-            color: '#ff7a7a',
-            fontSize: 11,
-            padding: 12,
-            textAlign: 'center'
-          }}
-        >
-          <CircleAlert size={13} />
-          {spawnError}
-        </div>
-      ) : (
-        <div
-          ref={containerRef}
-          className="nodrag nowheel"
-          style={{ flex: 1, minHeight: 0, background: '#0b0b0d' }}
-        />
-      )}
-      <Handle type="target" position={Position.Left} style={{ width: 12, height: 12 }} />
-      <Handle type="source" position={Position.Right} style={{ width: 12, height: 12 }} />
-    </div>
+    <AgentNodeSurface
+      id={id}
+      agentKind={agentKind}
+      label={d.label}
+      role={d.role ?? ''}
+      args={d.args}
+      managedAccountId={d.managedAccountId}
+      linearIssueLabel={d.linearIssueLabel}
+      selected={selected === true}
+      spawnError={spawnError}
+      containerRef={containerRef}
+      onAccountChanged={handleAccountChanged}
+    />
   )
 })

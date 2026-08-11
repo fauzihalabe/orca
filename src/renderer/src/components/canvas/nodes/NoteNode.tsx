@@ -20,21 +20,26 @@ export const NoteNode = memo(function NoteNode({ id, data, selected }: NodeProps
         height: '100%',
         display: 'flex',
         flexDirection: 'column',
-        background: '#1c1a12',
-        border: `1px solid ${selected ? 'rgba(255,212,122,0.7)' : 'rgba(255,212,122,0.18)'}`,
+        background: 'var(--crew-canvas-note-surface)',
+        border: `1px solid ${selected ? 'var(--crew-canvas-note-accent)' : 'color-mix(in srgb, var(--crew-canvas-note-accent) 35%, var(--crew-canvas-node-border))'}`,
         borderRadius: 12,
         overflow: 'hidden',
         boxShadow: selected
-          ? '0 0 0 3px rgba(255,212,122,0.14), 0 12px 32px rgba(0,0,0,0.5)'
-          : '0 8px 24px rgba(0,0,0,0.4)'
+          ? 'var(--crew-canvas-node-selected-shadow)'
+          : 'var(--crew-canvas-node-shadow)'
       }}
     >
       <NodeResizer
         isVisible={selected === true}
         minWidth={200}
         minHeight={140}
-        lineStyle={{ borderColor: 'rgba(122,162,255,0.4)' }}
-        handleStyle={{ width: 8, height: 8, borderRadius: 2, background: 'rgba(122,162,255,0.75)' }}
+        lineStyle={{ borderColor: 'var(--crew-canvas-primary-soft)' }}
+        handleStyle={{
+          width: 8,
+          height: 8,
+          borderRadius: 2,
+          background: 'var(--crew-canvas-handle)'
+        }}
       />
       <div
         className="crew-node-header drag-handle"
@@ -43,14 +48,17 @@ export const NoteNode = memo(function NoteNode({ id, data, selected }: NodeProps
           alignItems: 'center',
           gap: 7,
           padding: '7px 10px',
-          borderBottom: '1px solid rgba(255,212,122,0.12)',
-          background: 'rgba(255,212,122,0.05)',
+          borderBottom:
+            '1px solid color-mix(in srgb, var(--crew-canvas-note-accent) 28%, transparent)',
+          background: 'var(--crew-canvas-note-header)',
           cursor: 'grab',
           userSelect: 'none'
         }}
       >
-        <StickyNote size={13} style={{ color: '#ffd47a', flexShrink: 0 }} />
-        <span style={{ fontSize: 11.5, fontWeight: 600, color: 'rgba(255,235,190,0.85)' }}>
+        <StickyNote size={13} style={{ color: 'var(--crew-canvas-note-accent)', flexShrink: 0 }} />
+        <span
+          style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--crew-canvas-node-foreground)' }}
+        >
           {translate('auto.components.canvas.NoteNode.title', 'note')}
         </span>
       </div>
@@ -70,12 +78,20 @@ export const NoteNode = memo(function NoteNode({ id, data, selected }: NodeProps
           padding: 10,
           fontSize: 11.5,
           lineHeight: 1.5,
-          color: 'rgba(255,240,210,0.9)',
+          color: 'var(--crew-canvas-node-foreground)',
           fontFamily: 'inherit'
         }}
       />
-      <Handle type="target" position={Position.Left} style={{ width: 8, height: 8 }} />
-      <Handle type="source" position={Position.Right} style={{ width: 8, height: 8 }} />
+      <Handle
+        type="target"
+        position={Position.Left}
+        style={{ width: 8, height: 8, background: 'var(--crew-canvas-handle)' }}
+      />
+      <Handle
+        type="source"
+        position={Position.Right}
+        style={{ width: 8, height: 8, background: 'var(--crew-canvas-handle)' }}
+      />
     </div>
   )
 })

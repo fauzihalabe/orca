@@ -45,13 +45,13 @@ export const SimulatorNode = memo(function SimulatorNode({ id, data, selected }:
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
-            color: 'rgba(255,255,255,0.35)',
+            color: 'var(--crew-canvas-node-muted)',
             fontSize: 11,
             padding: 16,
             textAlign: 'center',
-            background: '#101013',
+            background: 'var(--crew-canvas-node-surface)',
             borderRadius: 12,
-            border: '1px solid rgba(255,255,255,0.09)',
+            border: '1px solid var(--crew-canvas-node-border)',
             cursor: 'grab'
           }}
         >
@@ -61,8 +61,16 @@ export const SimulatorNode = memo(function SimulatorNode({ id, data, selected }:
           )}
         </div>
       )}
-      <Handle type="target" position={Position.Left} style={{ width: 8, height: 8 }} />
-      <Handle type="source" position={Position.Right} style={{ width: 8, height: 8 }} />
+      <Handle
+        type="target"
+        position={Position.Left}
+        style={{ width: 8, height: 8, background: 'var(--crew-canvas-handle)' }}
+      />
+      <Handle
+        type="source"
+        position={Position.Right}
+        style={{ width: 8, height: 8, background: 'var(--crew-canvas-handle)' }}
+      />
     </div>
   )
 })
@@ -125,11 +133,11 @@ function SimulatorDevice({
         justifyContent: 'center',
         padding: 10,
         borderRadius: 24,
-        background: 'rgba(16,16,19,0.55)',
-        border: `1px solid ${selected ? 'rgba(255,150,170,0.55)' : 'rgba(255,255,255,0.07)'}`,
+        background: 'var(--crew-canvas-simulator-surface)',
+        border: `1px solid ${selected ? 'var(--crew-canvas-primary)' : 'var(--crew-canvas-node-border)'}`,
         boxShadow: selected
-          ? '0 0 0 3px rgba(255,150,170,0.12), 0 18px 44px rgba(0,0,0,0.55)'
-          : '0 14px 36px rgba(0,0,0,0.45)',
+          ? 'var(--crew-canvas-node-selected-shadow)'
+          : 'var(--crew-canvas-node-shadow)',
         cursor: 'grab',
         userSelect: 'none',
         backdropFilter: 'blur(8px)',

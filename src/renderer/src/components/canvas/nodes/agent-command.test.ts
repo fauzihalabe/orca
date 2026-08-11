@@ -120,4 +120,21 @@ describe('Canvas agent launch command', () => {
     expect(launch.agentArgs).toContain("'resume' 'session-1'")
     expect(launch.agentArgs).toContain('mcp_servers.orca_canvas.args')
   })
+
+  it('describes terminal.run as an inline native read', () => {
+    const launch = buildAgentCommand(
+      'codex',
+      undefined,
+      'codex',
+      [],
+      { port: 4312, token: 'token' },
+      undefined,
+      [],
+      ['terminal']
+    )
+    const prompt = launch.env?.CREW_SYSTEM_PROMPT ?? ''
+
+    expect(prompt).toContain('retorna a leitura inline em uma chamada')
+    expect(prompt).toContain('não chame "terminal.read" automaticamente depois')
+  })
 })

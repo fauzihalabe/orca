@@ -34,21 +34,26 @@ export const TerminalNode = memo(function TerminalNode({ id, data, selected }: N
         height: '100%',
         display: 'flex',
         flexDirection: 'column',
-        background: '#101013',
-        border: `1px solid ${selected ? 'rgba(94,214,155,0.7)' : 'rgba(255,255,255,0.09)'}`,
+        background: 'var(--crew-canvas-node-surface)',
+        border: `1px solid ${selected ? 'var(--crew-canvas-success)' : 'var(--crew-canvas-node-border)'}`,
         borderRadius: 12,
         overflow: 'hidden',
         boxShadow: selected
-          ? '0 0 0 3px rgba(94,214,155,0.15), 0 12px 32px rgba(0,0,0,0.5)'
-          : '0 8px 24px rgba(0,0,0,0.4)'
+          ? 'var(--crew-canvas-node-selected-shadow)'
+          : 'var(--crew-canvas-node-shadow)'
       }}
     >
       <NodeResizer
         isVisible={selected === true}
         minWidth={200}
         minHeight={140}
-        lineStyle={{ borderColor: 'rgba(122,162,255,0.4)' }}
-        handleStyle={{ width: 8, height: 8, borderRadius: 2, background: 'rgba(122,162,255,0.75)' }}
+        lineStyle={{ borderColor: 'var(--crew-canvas-primary-soft)' }}
+        handleStyle={{
+          width: 8,
+          height: 8,
+          borderRadius: 2,
+          background: 'var(--crew-canvas-handle)'
+        }}
       />
       <div
         className="crew-node-header drag-handle"
@@ -57,14 +62,16 @@ export const TerminalNode = memo(function TerminalNode({ id, data, selected }: N
           alignItems: 'center',
           gap: 7,
           padding: '7px 10px',
-          borderBottom: '1px solid rgba(255,255,255,0.07)',
-          background: 'rgba(255,255,255,0.03)',
+          borderBottom: '1px solid var(--crew-canvas-node-header-border)',
+          background: 'var(--crew-canvas-node-header)',
           cursor: 'grab',
           userSelect: 'none'
         }}
       >
-        <SquareTerminal size={13} style={{ color: '#5ed69b', flexShrink: 0 }} />
-        <span style={{ fontSize: 11.5, fontWeight: 600, color: 'rgba(255,255,255,0.85)' }}>
+        <SquareTerminal size={13} style={{ color: 'var(--crew-canvas-success)', flexShrink: 0 }} />
+        <span
+          style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--crew-canvas-node-foreground)' }}
+        >
           {label}
         </span>
       </div>
@@ -78,8 +85,16 @@ export const TerminalNode = memo(function TerminalNode({ id, data, selected }: N
         label={label}
         onSessionReady={onSessionReady}
       />
-      <Handle type="target" position={Position.Left} style={{ width: 8, height: 8 }} />
-      <Handle type="source" position={Position.Right} style={{ width: 8, height: 8 }} />
+      <Handle
+        type="target"
+        position={Position.Left}
+        style={{ width: 8, height: 8, background: 'var(--crew-canvas-handle)' }}
+      />
+      <Handle
+        type="source"
+        position={Position.Right}
+        style={{ width: 8, height: 8, background: 'var(--crew-canvas-handle)' }}
+      />
     </div>
   )
 })

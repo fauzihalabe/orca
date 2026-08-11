@@ -218,7 +218,7 @@ export function buildAgentCommand(
     }
     if (connectedKinds.includes('terminal')) {
       caps.push(
-        '- Terminal conectado: "terminal.send" {"text" ou "command"} envia pelo runtime nativo; "terminal.read" {"cursor"?} acompanha a saída sem raspar a tela. "terminal.run" é o alias compatível de envio e também deve ser acompanhado por terminal.read.'
+        '- Terminal conectado: "terminal.run" {"text" ou "command"} envia pelo runtime nativo e retorna a leitura inline em uma chamada; não chame "terminal.read" automaticamente depois. Use "terminal.send" para iniciar um processo contínuo e "terminal.read" para acompanhar ou obter mais linhas.'
       )
     }
     if (connectedKinds.includes('simulator')) {

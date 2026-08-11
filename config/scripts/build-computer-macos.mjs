@@ -1,11 +1,14 @@
 import { spawnSync } from 'node:child_process'
-import { chmodSync, copyFileSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
+import { chmodSync, copyFileSync, mkdirSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 
 const repoRoot = path.resolve(import.meta.dirname, '../..')
 const packagePath = path.join(repoRoot, 'native', 'computer-use-macos')
+const coreSourcePath = path.join(packagePath, 'Sources', 'OrcaComputerUseMacOSCore')
+const mainSourcePath = path.join(packagePath, 'Sources', 'OrcaComputerUseMacOS', 'main.swift')
 const binaryPath = path.join(packagePath, '.build', 'release', 'orca-computer-use-macos')
 const appPath = path.join(packagePath, '.build', 'release', 'Orca Computer Use.app')
+const directBuildPath = path.join(packagePath, '.build', 'direct')
 const appExecutablePath = path.join(appPath, 'Contents', 'MacOS', 'orca-computer-use-macos')
 const appIconPath = path.join(appPath, 'Contents', 'Resources', 'AppIcon.icns')
 const entitlementsPath = path.join(
@@ -17,7 +20,7 @@ const entitlementsPath = path.join(
 const bundleId = process.env.ORCA_COMPUTER_MACOS_BUNDLE_ID ?? 'com.stablyai.orca.computer-use'
 const displayName = 'Orca Computer Use'
 const signingIdentity = resolveSigningIdentity()
-const universalTriples = ['arm64-apple-macosx', 'x86_64-apple-macosx']
+const universalTriples = ['arm64-apple-macosx14.0', 'x86_64-apple-macosx14.0']
 
 if (process.platform !== 'darwin') {
   process.exit(0)
@@ -28,12 +31,99 @@ chmodSync(binaryPath, 0o755)
 createHelperApp()
 
 function buildUniversalBinary() {
-  const builtBinaries = universalTriples.map((triple) => {
-    run('swift', ['build', '-c', 'release', '--package-path', packagePath, '--triple', triple])
-    return path.join(packagePath, '.build', triple, 'release', 'orca-computer-use-macos')
-  })
+  rmSync(directBuildPath, { recursive: true, force: true })
+  const builtBinaries = universalTriples.map(buildTargetBinary)
   mkdirSync(path.dirname(binaryPath), { recursive: true })
   run('lipo', ['-create', ...builtBinaries, '-output', binaryPath])
+}
+
+function buildTargetBinary(triple) {
+  const targetBuildPath = path.join(directBuildPath, triple, 'release')
+  const coreModulePath = path.join(targetBuildPath, 'OrcaComputerUseMacOSCore.swiftmodule')
+  const coreObjectPath = path.join(targetBuildPath, 'OrcaComputerUseMacOSCore.o')
+  const targetBinaryPath = path.join(targetBuildPath, 'orca-computer-use-macos')
+  const swiftSdkPath = resolveSwiftSdkPath()
+  const coreSourcePaths = readdirSync(coreSourcePath)
+    .filter((sourceName) => sourceName.endsWith('.swift'))
+    .sort()
+    .map((sourceName) => path.join(coreSourcePath, sourceName))
+
+  mkdirSync(targetBuildPath, { recursive: true })
+  run('swiftc', [
+    '-target',
+    triple,
+    '-sdk',
+    swiftSdkPath,
+    '-O',
+    '-g',
+    '-swift-version',
+    '6',
+    '-D',
+    'SWIFT_PACKAGE',
+    '-D',
+    'SWIFT_MODULE_RESOURCE_BUNDLE_UNAVAILABLE',
+    '-module-name',
+    'OrcaComputerUseMacOSCore',
+    '-package-name',
+    'computer_use_macos',
+    '-parse-as-library',
+    '-whole-module-optimization',
+    '-module-cache-path',
+    path.join(targetBuildPath, 'ModuleCache'),
+    '-emit-module',
+    '-emit-object',
+    '-emit-module-path',
+    coreModulePath,
+    '-o',
+    coreObjectPath,
+    ...coreSourcePaths
+  ])
+  run('swiftc', [
+    '-target',
+    triple,
+    '-sdk',
+    swiftSdkPath,
+    '-O',
+    '-g',
+    '-swift-version',
+    '6',
+    '-D',
+    'SWIFT_PACKAGE',
+    '-D',
+    'SWIFT_MODULE_RESOURCE_BUNDLE_UNAVAILABLE',
+    '-module-name',
+    'OrcaComputerUseMacOS',
+    '-package-name',
+    'computer_use_macos',
+    '-module-cache-path',
+    path.join(targetBuildPath, 'ModuleCache'),
+    '-Xfrontend',
+    '-entry-point-function-name',
+    '-Xfrontend',
+    'OrcaComputerUseMacOS_main',
+    '-I',
+    targetBuildPath,
+    '-Xlinker',
+    '-alias',
+    '-Xlinker',
+    '_OrcaComputerUseMacOS_main',
+    '-Xlinker',
+    '_main',
+    '-o',
+    targetBinaryPath,
+    mainSourcePath,
+    coreObjectPath
+  ])
+  return targetBinaryPath
+}
+
+function resolveSwiftSdkPath() {
+  const result = spawnSync('xcrun', ['--sdk', 'macosx', '--show-sdk-path'], { encoding: 'utf8' })
+  if (result.status !== 0 || !result.stdout) {
+    process.stderr.write(result.stderr ?? '')
+    process.exit(result.status ?? 1)
+  }
+  return result.stdout.trim()
 }
 
 function createHelperApp() {

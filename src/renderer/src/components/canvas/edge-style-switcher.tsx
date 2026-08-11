@@ -36,11 +36,11 @@ export function EdgeStyleSwitcher() {
         zIndex: 30,
         display: 'flex',
         gap: 3,
-        background: 'var(--popover, #17171b)',
-        border: '1px solid var(--border, rgba(255,255,255,0.1))',
+        background: 'var(--popover)',
+        border: '1px solid var(--border)',
         borderRadius: 9,
         padding: 4,
-        boxShadow: '0 8px 24px rgba(0,0,0,0.45)'
+        boxShadow: 'var(--crew-canvas-node-shadow)'
       }}
     >
       {styleOptions().map((option) => (
@@ -56,8 +56,9 @@ export function EdgeStyleSwitcher() {
             borderRadius: 6,
             border: 'none',
             cursor: 'pointer',
-            background: edgeStyle === option.id ? 'rgba(122,162,255,0.18)' : 'transparent',
-            color: edgeStyle === option.id ? '#a8c2ff' : 'rgba(255,255,255,0.4)'
+            background: edgeStyle === option.id ? 'var(--crew-canvas-primary-soft)' : 'transparent',
+            color:
+              edgeStyle === option.id ? 'var(--crew-canvas-primary)' : 'var(--muted-foreground)'
           }}
         >
           {option.preview}

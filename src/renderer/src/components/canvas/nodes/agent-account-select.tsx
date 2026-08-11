@@ -143,9 +143,9 @@ export function AgentAccountSelect({
       style={{
         fontSize: 10,
         fontWeight: 600,
-        color: 'rgba(255,255,255,0.55)',
-        background: 'rgba(255,255,255,0.06)',
-        border: '1px solid rgba(255,255,255,0.1)',
+        color: 'var(--crew-canvas-node-muted)',
+        background: 'var(--crew-canvas-control-background)',
+        border: '1px solid var(--crew-canvas-control-border)',
         borderRadius: 6,
         padding: '2px 5px',
         outline: 'none',

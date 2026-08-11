@@ -44,6 +44,7 @@ import { installCrewAskListener } from './crew-ask-listener'
 import { CreatePalette, type PaletteKind } from './create-palette'
 import { EdgeStyleSwitcher } from './edge-style-switcher'
 import { useRubberBand } from './use-rubber-band'
+import { useCanvasColorMode } from './canvas-theme'
 import { useAppStore } from '@/store'
 
 const nodeTypes: NodeTypes = {
@@ -86,6 +87,7 @@ function CanvasSurface() {
   const actions = useCanvasActions()
   const readGraph = useCanvasGraphReader()
   const { screenToFlowPosition } = useReactFlow()
+  const colorMode = useCanvasColorMode()
   const activeRef = useRef(active)
   const rootRef = useRef<HTMLDivElement>(null)
   activeRef.current = active
@@ -277,7 +279,7 @@ function CanvasSurface() {
     <div
       ref={rootRef}
       className="crew-canvas-root h-full w-full"
-      style={{ background: 'var(--background)', position: 'relative' }}
+      style={{ background: 'var(--crew-canvas-background)', position: 'relative' }}
       onPointerDownCapture={shieldNativeGuestsDuringPointerGesture}
     >
       <ReactFlow
@@ -298,7 +300,7 @@ function CanvasSurface() {
         minZoom={0.2}
         maxZoom={2.5}
         proOptions={{ hideAttribution: false }}
-        colorMode="dark"
+        colorMode={colorMode}
         panOnDrag={false}
         panOnScroll
         zoomOnScroll={false}
@@ -311,7 +313,7 @@ function CanvasSurface() {
           variant={BackgroundVariant.Dots}
           gap={24}
           size={1.5}
-          color="rgba(255,255,255,0.14)"
+          color="var(--crew-canvas-dot)"
         />
       </ReactFlow>
       {band ? (
@@ -322,9 +324,9 @@ function CanvasSurface() {
             top: Math.min(band.startY, band.currentY),
             width: Math.abs(band.currentX - band.startX),
             height: Math.abs(band.currentY - band.startY),
-            border: '1.5px dashed rgba(122,162,255,0.65)',
+            border: '1.5px dashed var(--crew-canvas-handle)',
             borderRadius: 10,
-            background: 'rgba(122,162,255,0.07)',
+            background: 'var(--crew-canvas-primary-soft)',
             pointerEvents: 'none',
             zIndex: 35
           }}

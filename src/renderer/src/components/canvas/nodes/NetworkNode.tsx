@@ -94,21 +94,26 @@ export const NetworkNode = memo(function NetworkNode({ id, data, selected }: Nod
         height: '100%',
         display: 'flex',
         flexDirection: 'column',
-        background: '#0d1210',
-        border: `1px solid ${selected ? 'rgba(94,214,155,0.7)' : 'rgba(255,255,255,0.09)'}`,
+        background: 'var(--crew-canvas-network-surface)',
+        border: `1px solid ${selected ? 'var(--crew-canvas-success)' : 'var(--crew-canvas-node-border)'}`,
         borderRadius: 12,
         overflow: 'hidden',
         boxShadow: selected
-          ? '0 0 0 3px rgba(94,214,155,0.15), 0 12px 32px rgba(0,0,0,0.5)'
-          : '0 8px 24px rgba(0,0,0,0.4)'
+          ? 'var(--crew-canvas-node-selected-shadow)'
+          : 'var(--crew-canvas-node-shadow)'
       }}
     >
       <NodeResizer
         isVisible={selected === true}
         minWidth={200}
         minHeight={140}
-        lineStyle={{ borderColor: 'rgba(122,162,255,0.4)' }}
-        handleStyle={{ width: 8, height: 8, borderRadius: 2, background: 'rgba(122,162,255,0.75)' }}
+        lineStyle={{ borderColor: 'var(--crew-canvas-primary-soft)' }}
+        handleStyle={{
+          width: 8,
+          height: 8,
+          borderRadius: 2,
+          background: 'var(--crew-canvas-handle)'
+        }}
       />
       <div
         className="crew-node-header drag-handle"
@@ -117,17 +122,19 @@ export const NetworkNode = memo(function NetworkNode({ id, data, selected }: Nod
           alignItems: 'center',
           gap: 7,
           padding: '7px 10px',
-          borderBottom: '1px solid rgba(255,255,255,0.07)',
-          background: 'rgba(255,255,255,0.03)',
+          borderBottom: '1px solid var(--crew-canvas-node-header-border)',
+          background: 'var(--crew-canvas-node-header)',
           cursor: 'grab',
           userSelect: 'none'
         }}
       >
-        <Activity size={13} style={{ color: '#5ed69b', flexShrink: 0 }} />
-        <span style={{ fontSize: 11.5, fontWeight: 600, color: 'rgba(255,255,255,0.85)' }}>
+        <Activity size={13} style={{ color: 'var(--crew-canvas-success)', flexShrink: 0 }} />
+        <span
+          style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--crew-canvas-node-foreground)' }}
+        >
           {translate('auto.components.canvas.NetworkNode.title', 'network')}
         </span>
-        <span style={{ marginLeft: 'auto', fontSize: 9.5, color: 'rgba(255,255,255,0.3)' }}>
+        <span style={{ marginLeft: 'auto', fontSize: 9.5, color: 'var(--crew-canvas-node-muted)' }}>
           {linked
             ? `${entries.length}`
             : translate('auto.components.canvas.NetworkNode.unlinked', 'link a browser')}
@@ -148,7 +155,7 @@ export const NetworkNode = memo(function NetworkNode({ id, data, selected }: Nod
             style={{
               padding: 12,
               fontSize: 10.5,
-              color: 'rgba(255,255,255,0.3)',
+              color: 'var(--crew-canvas-node-muted)',
               fontFamily: 'inherit'
             }}
           >
@@ -164,16 +171,25 @@ export const NetworkNode = memo(function NetworkNode({ id, data, selected }: Nod
                 alignItems: 'baseline',
                 padding: '2.5px 9px',
                 fontSize: 10,
-                borderBottom: '1px solid rgba(255,255,255,0.04)'
+                borderBottom: '1px solid var(--crew-canvas-node-header-border)'
               }}
             >
-              <span style={{ color: '#7aa2ff', fontWeight: 700, width: 38, flexShrink: 0 }}>
+              <span
+                style={{
+                  color: 'var(--crew-canvas-primary)',
+                  fontWeight: 700,
+                  width: 38,
+                  flexShrink: 0
+                }}
+              >
                 {entry.method}
               </span>
               <span
                 style={{
                   color:
-                    entry.status >= 400 || entry.status === 0 ? '#ff8a8a' : 'rgba(255,255,255,0.5)',
+                    entry.status >= 400 || entry.status === 0
+                      ? 'var(--crew-canvas-error)'
+                      : 'var(--crew-canvas-node-muted)',
                   width: 28,
                   flexShrink: 0
                 }}
@@ -183,7 +199,7 @@ export const NetworkNode = memo(function NetworkNode({ id, data, selected }: Nod
               <span
                 style={{
                   flex: 1,
-                  color: 'rgba(255,255,255,0.75)',
+                  color: 'var(--crew-canvas-node-foreground)',
                   overflow: 'hidden',
                   textOverflow: 'ellipsis',
                   whiteSpace: 'nowrap'
@@ -192,15 +208,23 @@ export const NetworkNode = memo(function NetworkNode({ id, data, selected }: Nod
               >
                 {entry.url.replace(/^[a-z]+:\/\//i, '').slice(0, 60)}
               </span>
-              <span style={{ color: 'rgba(255,255,255,0.3)', flexShrink: 0 }}>
+              <span style={{ color: 'var(--crew-canvas-node-muted)', flexShrink: 0 }}>
                 {entry.size > 0 ? `${entry.size}b` : entry.mimeType || '—'}
               </span>
             </div>
           ))
         )}
       </div>
-      <Handle type="target" position={Position.Left} style={{ width: 8, height: 8 }} />
-      <Handle type="source" position={Position.Right} style={{ width: 8, height: 8 }} />
+      <Handle
+        type="target"
+        position={Position.Left}
+        style={{ width: 8, height: 8, background: 'var(--crew-canvas-handle)' }}
+      />
+      <Handle
+        type="source"
+        position={Position.Right}
+        style={{ width: 8, height: 8, background: 'var(--crew-canvas-handle)' }}
+      />
     </div>
   )
 })

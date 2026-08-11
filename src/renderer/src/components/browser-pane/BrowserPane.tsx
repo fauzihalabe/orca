@@ -771,11 +771,13 @@ function browserOverlayOwnsShortcutTarget(
 export default function BrowserPane({
   browserTab,
   isActive,
-  findShortcutScope
+  findShortcutScope,
+  canvasSurface = false
 }: {
   browserTab: BrowserWorkspaceState
   isActive: boolean
   findShortcutScope?: BrowserFindShortcutScope
+  canvasSurface?: boolean
 }): React.JSX.Element {
   const resolvedFindShortcutScope = findShortcutScope ?? (isActive ? 'focused' : 'inactive')
   const activeRuntimeEnvironmentId = useAppStore((s) =>
@@ -849,6 +851,7 @@ export default function BrowserPane({
         runtimeEnvironmentId={activeBrowserRuntimeEnvironmentId}
         worktreeId={browserTab.worktreeId}
         isActive={isActive}
+        canvasSurface={canvasSurface}
         onUpdatePageState={updateBrowserPageState}
         onSetUrl={setBrowserPageUrl}
       />
@@ -858,7 +861,12 @@ export default function BrowserPane({
   }
 
   return (
-    <div className="relative flex h-full min-h-0 flex-1 flex-col">
+    <div
+      className={cn(
+        'relative flex h-full min-h-0 flex-1 flex-col',
+        canvasSurface && 'crew-canvas-browser-pane'
+      )}
+    >
       {renderedBrowserPages.length > 0 ? (
         <div className="relative flex min-h-0 flex-1">
           {renderedBrowserPages.map((page) => (
@@ -895,6 +903,7 @@ function RemoteBrowserPagePane({
   runtimeEnvironmentId,
   worktreeId,
   isActive,
+  canvasSurface,
   onUpdatePageState,
   onSetUrl
 }: {
@@ -902,6 +911,7 @@ function RemoteBrowserPagePane({
   runtimeEnvironmentId: string
   worktreeId: string
   isActive: boolean
+  canvasSurface: boolean
   onUpdatePageState: (tabId: string, updates: BrowserTabPageState) => void
   onSetUrl: BrowserPageUrlSetter
 }): React.JSX.Element {
@@ -2068,7 +2078,10 @@ function RemoteBrowserPagePane({
     // and controls like the address bar are otherwise ambiguous across them.
     <div
       data-testid="remote-browser-pane"
-      className="relative flex h-full min-h-0 flex-1 flex-col bg-background"
+      className={cn(
+        'relative flex h-full min-h-0 flex-1 flex-col bg-background',
+        canvasSurface && 'crew-canvas-browser-pane'
+      )}
     >
       {contextMenu
         ? createPortal(

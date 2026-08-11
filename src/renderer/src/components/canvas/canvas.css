@@ -7,11 +7,67 @@
   }
 }
 
+.crew-canvas-root {
+  --crew-canvas-background: var(--background);
+  --crew-canvas-terminal-background: var(--editor-surface);
+  --crew-canvas-dot: color-mix(in srgb, var(--foreground) 18%, transparent);
+  --crew-canvas-primary: var(--ring);
+  --crew-canvas-primary-soft: color-mix(in srgb, var(--ring) 18%, transparent);
+  --crew-canvas-handle: color-mix(in srgb, var(--ring) 75%, transparent);
+  --crew-canvas-node-surface: var(--card);
+  --crew-canvas-node-foreground: var(--card-foreground);
+  --crew-canvas-node-muted: var(--muted-foreground);
+  --crew-canvas-node-border: color-mix(in srgb, var(--foreground) 14%, transparent);
+  --crew-canvas-node-header: color-mix(in srgb, var(--foreground) 5%, transparent);
+  --crew-canvas-node-header-border: color-mix(in srgb, var(--foreground) 10%, transparent);
+  --crew-canvas-node-shadow: 0 8px 24px rgb(0 0 0 / 0.18);
+  --crew-canvas-node-selected-shadow:
+    0 0 0 3px var(--crew-canvas-primary-soft), 0 12px 32px rgb(0 0 0 / 0.22);
+  --crew-canvas-control-background: color-mix(in srgb, var(--foreground) 6%, transparent);
+  --crew-canvas-control-border: color-mix(in srgb, var(--foreground) 14%, transparent);
+  --crew-canvas-success: var(--status-success);
+  --crew-canvas-error: var(--destructive);
+  --crew-canvas-note-accent: var(--annotation-highlight);
+  --crew-canvas-note-surface: color-mix(in srgb, var(--annotation-highlight) 10%, var(--card));
+  --crew-canvas-note-header: color-mix(in srgb, var(--annotation-highlight) 8%, transparent);
+  --crew-canvas-timer-accent: var(--ai-action-accent);
+  --crew-canvas-timer-surface: color-mix(in srgb, var(--ai-action-accent) 8%, var(--card));
+  --crew-canvas-link-accent: var(--ai-action-accent);
+  --crew-canvas-link-soft: color-mix(in srgb, var(--ai-action-accent) 12%, transparent);
+  --crew-canvas-network-surface: color-mix(in srgb, var(--status-success) 8%, var(--card));
+  --crew-canvas-simulator-surface: color-mix(in srgb, var(--foreground) 5%, transparent);
+  --crew-canvas-edge: color-mix(in srgb, var(--ring) 65%, transparent);
+  --crew-canvas-edge-selected: var(--ring);
+  --crew-canvas-edge-fusion: color-mix(in srgb, var(--ring) 90%, transparent);
+}
+
+.crew-canvas-browser-pane {
+  --background: var(--crew-canvas-node-surface);
+  --foreground: var(--crew-canvas-node-foreground);
+  --card: var(--crew-canvas-node-surface);
+  --card-foreground: var(--crew-canvas-node-foreground);
+  --popover: var(--crew-canvas-node-surface);
+  --popover-foreground: var(--crew-canvas-node-foreground);
+  --primary: var(--crew-canvas-primary);
+  --primary-foreground: var(--crew-canvas-node-surface);
+  --secondary: var(--crew-canvas-control-background);
+  --secondary-foreground: var(--crew-canvas-node-foreground);
+  --muted: var(--crew-canvas-control-background);
+  --muted-foreground: var(--crew-canvas-node-muted);
+  --accent: var(--crew-canvas-control-background);
+  --accent-foreground: var(--crew-canvas-node-foreground);
+  --border: var(--crew-canvas-node-header-border);
+  --input: var(--crew-canvas-control-border);
+  --ring: var(--crew-canvas-primary);
+  background: var(--background);
+  color: var(--foreground);
+}
+
 .crew-edge__fusion {
   stroke-dasharray: 1;
   stroke-dashoffset: 1;
   animation: crew-edge-fusion 0.85s cubic-bezier(0.2, 0.7, 0.3, 1) forwards;
-  filter: drop-shadow(0 0 7px rgba(150, 190, 255, 0.85));
+  filter: drop-shadow(0 0 7px var(--crew-canvas-edge-fusion));
   pointer-events: none;
 }
 

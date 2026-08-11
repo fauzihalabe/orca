@@ -74,9 +74,9 @@ export function AgentLinearLink({
             gap: 4,
             fontSize: 10,
             fontWeight: 700,
-            color: '#b0a4ff',
-            background: 'rgba(176,164,255,0.12)',
-            border: '1px solid rgba(176,164,255,0.3)',
+            color: 'var(--crew-canvas-link-accent)',
+            background: 'var(--crew-canvas-link-soft)',
+            border: '1px solid color-mix(in srgb, var(--crew-canvas-link-accent) 30%, transparent)',
             borderRadius: 6,
             padding: '2px 6px'
           }}
@@ -111,7 +111,7 @@ export function AgentLinearLink({
             borderRadius: 5,
             padding: 3,
             cursor: 'pointer',
-            color: 'rgba(255,255,255,0.35)',
+            color: 'var(--crew-canvas-node-muted)',
             display: 'inline-flex'
           }}
         >
@@ -125,12 +125,12 @@ export function AgentLinearLink({
             top: 22,
             right: 0,
             zIndex: 30,
-            background: 'var(--popover, #17171b)',
-            border: '1px solid var(--border, rgba(255,255,255,0.12))',
+            background: 'var(--popover)',
+            border: '1px solid var(--border)',
             borderRadius: 9,
             padding: 8,
             width: 260,
-            boxShadow: '0 12px 32px rgba(0,0,0,0.55)',
+            boxShadow: 'var(--crew-canvas-node-selected-shadow)',
             display: 'flex',
             flexDirection: 'column',
             gap: 6
@@ -145,12 +145,12 @@ export function AgentLinearLink({
               'Search Linear issues…'
             )}
             style={{
-              background: 'rgba(255,255,255,0.06)',
-              border: '1px solid rgba(255,255,255,0.12)',
+              background: 'var(--crew-canvas-control-background)',
+              border: '1px solid var(--crew-canvas-control-border)',
               borderRadius: 6,
               padding: '5px 8px',
               fontSize: 11,
-              color: 'rgba(255,255,255,0.85)',
+              color: 'var(--popover-foreground)',
               outline: 'none'
             }}
           />
@@ -165,11 +165,11 @@ export function AgentLinearLink({
             }}
           >
             {searching ? (
-              <span style={{ fontSize: 10.5, color: 'rgba(255,255,255,0.4)', padding: 6 }}>
+              <span style={{ fontSize: 10.5, color: 'var(--crew-canvas-node-muted)', padding: 6 }}>
                 {translate('auto.components.canvas.AgentLinearLink.searching', 'searching…')}
               </span>
             ) : results.length === 0 ? (
-              <span style={{ fontSize: 10.5, color: 'rgba(255,255,255,0.4)', padding: 6 }}>
+              <span style={{ fontSize: 10.5, color: 'var(--crew-canvas-node-muted)', padding: 6 }}>
                 {translate('auto.components.canvas.AgentLinearLink.empty', 'no issues')}
               </span>
             ) : (
@@ -193,19 +193,26 @@ export function AgentLinearLink({
                     textAlign: 'left'
                   }}
                   onMouseEnter={(event) => {
-                    event.currentTarget.style.background = 'rgba(176,164,255,0.1)'
+                    event.currentTarget.style.background = 'var(--crew-canvas-link-soft)'
                   }}
                   onMouseLeave={(event) => {
                     event.currentTarget.style.background = 'transparent'
                   }}
                 >
-                  <span style={{ fontSize: 10, fontWeight: 700, color: '#b0a4ff', flexShrink: 0 }}>
+                  <span
+                    style={{
+                      fontSize: 10,
+                      fontWeight: 700,
+                      color: 'var(--crew-canvas-link-accent)',
+                      flexShrink: 0
+                    }}
+                  >
                     {issue.identifier}
                   </span>
                   <span
                     style={{
                       fontSize: 11,
-                      color: 'rgba(255,255,255,0.8)',
+                      color: 'var(--popover-foreground)',
                       overflow: 'hidden',
                       textOverflow: 'ellipsis',
                       whiteSpace: 'nowrap'

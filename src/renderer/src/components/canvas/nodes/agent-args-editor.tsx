@@ -31,12 +31,12 @@ export function AgentArgsEditor({
             : translate('auto.components.canvas.AgentArgsEditor.buttonTitle', 'Agent launch args')
         }
         style={{
-          background: args ? 'rgba(122,162,255,0.14)' : 'transparent',
+          background: args ? 'var(--crew-canvas-primary-soft)' : 'transparent',
           border: 'none',
           borderRadius: 5,
           padding: 3,
           cursor: 'pointer',
-          color: args ? '#7aa2ff' : 'rgba(255,255,255,0.35)',
+          color: args ? 'var(--crew-canvas-primary)' : 'var(--crew-canvas-node-muted)',
           display: 'inline-flex'
         }}
       >
@@ -51,12 +51,12 @@ export function AgentArgsEditor({
             top: 22,
             right: 0,
             zIndex: 30,
-            background: '#17171b',
-            border: '1px solid rgba(255,255,255,0.12)',
+            background: 'var(--popover)',
+            border: '1px solid var(--border)',
             borderRadius: 9,
             padding: 9,
             width: 240,
-            boxShadow: '0 12px 32px rgba(0,0,0,0.55)'
+            boxShadow: 'var(--crew-canvas-node-selected-shadow)'
           }}
         >
           <span
@@ -66,7 +66,7 @@ export function AgentArgsEditor({
               fontWeight: 700,
               letterSpacing: '0.05em',
               textTransform: 'uppercase',
-              color: 'rgba(255,255,255,0.4)',
+              color: 'var(--crew-canvas-node-muted)',
               marginBottom: 5
             }}
           >
@@ -94,13 +94,13 @@ export function AgentArgsEditor({
             }}
             style={{
               width: '100%',
-              background: 'rgba(255,255,255,0.06)',
-              border: '1px solid rgba(255,255,255,0.12)',
+              background: 'var(--crew-canvas-control-background)',
+              border: '1px solid var(--crew-canvas-control-border)',
               borderRadius: 6,
               padding: '5px 7px',
               fontSize: 11,
               fontFamily: 'ui-monospace, monospace',
-              color: 'rgba(255,255,255,0.85)',
+              color: 'var(--popover-foreground)',
               outline: 'none',
               boxSizing: 'border-box'
             }}
@@ -110,7 +110,7 @@ export function AgentArgsEditor({
               display: 'block',
               marginTop: 5,
               fontSize: 9.5,
-              color: 'rgba(255,255,255,0.35)',
+              color: 'var(--crew-canvas-node-muted)',
               lineHeight: 1.4
             }}
           >

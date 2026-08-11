@@ -2,11 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { ORCHESTRATION_CONTRACT_VERSION } from '../shared/protocol-version'
 import type { OrcaRuntimeService } from './runtime/orca-runtime'
 import { RpcDispatcher } from './runtime/rpc/dispatcher'
-import {
-  crewCanvasJson,
-  crewCanvasText,
-  type LocatedCanvasNode
-} from './crew-canvas-graph'
+import { crewCanvasJson, crewCanvasText, type LocatedCanvasNode } from './crew-canvas-graph'
 import type { CrewCanvasStateStore } from './crew-canvas-state'
 
 const NATIVE_REQUEST_TIMEOUT_MS = 150_000
@@ -155,6 +151,12 @@ export class CrewCanvasNativeTools {
       if (!command.trim()) {
         return 'erro: command/text obrigatório'
       }
+      const runtime = this.getRuntime()
+      const runningAgent = runtime ? await runtime.isTerminalRunningAgent(handle) : false
+      const commandWaitToken =
+        runtime && !runningAgent && args.enter !== false
+          ? runtime.prepareTerminalCommandWait(handle)
+          : null
       await this.dispatch('terminal.send', {
         terminal: handle,
         text: command,
@@ -163,15 +165,26 @@ export class CrewCanvasNativeTools {
       if (tool === 'terminal.send') {
         return JSON.stringify({ sent: true })
       }
-      // Why: terminal.run must feel exactly like a native agent's own command
-      // execution — one call, output inline. The wait is ENGINE-side (tui-idle,
-      // the runtime's own prompt/idle detector), so no model cycles burn on
-      // cursor polling; terminal.read stays available for explicit follow-up.
       const timeoutMs = typeof args.timeoutMs === 'number' ? args.timeoutMs : 60_000
-      try {
-        await this.dispatch('terminal.wait', { terminal: handle, for: 'tui-idle', timeoutMs })
-      } catch {
-        // timeout/stale — fall through and return whatever the screen has
+      if (runtime && args.enter !== false) {
+        const abort = new AbortController()
+        try {
+          if (runningAgent) {
+            await runtime.waitForTerminal(handle, {
+              condition: 'tui-idle',
+              timeoutMs,
+              signal: abort.signal
+            })
+          } else if (commandWaitToken) {
+            await runtime.waitForTerminalCommand(commandWaitToken, {
+              timeoutMs,
+              signal: abort.signal
+            })
+          }
+        } catch {
+        } finally {
+          abort.abort()
+        }
       }
       return JSON.stringify(
         await this.dispatch('terminal.read', {

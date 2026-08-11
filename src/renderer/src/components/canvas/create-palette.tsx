@@ -120,11 +120,11 @@ export function CreatePalette({
         maxHeight: 'calc(100vh - 16px)',
         overflowY: 'auto',
         zIndex: 40,
-        background: 'var(--popover, #17171b)',
-        border: '1px solid var(--border, rgba(255,255,255,0.12))',
+        background: 'var(--popover)',
+        border: '1px solid var(--border)',
         borderRadius: 10,
         padding: 5,
-        boxShadow: '0 16px 44px rgba(0,0,0,0.6)',
+        boxShadow: 'var(--crew-canvas-node-selected-shadow)',
         display: 'flex',
         flexDirection: 'column',
         gap: 2,
@@ -150,7 +150,7 @@ export function CreatePalette({
             textAlign: 'left'
           }}
           onMouseEnter={(event) => {
-            event.currentTarget.style.background = 'rgba(122,162,255,0.12)'
+            event.currentTarget.style.background = 'var(--crew-canvas-primary-soft)'
           }}
           onMouseLeave={(event) => {
             event.currentTarget.style.background = 'transparent'
@@ -160,14 +160,12 @@ export function CreatePalette({
             style={{
               fontSize: 12,
               fontWeight: 600,
-              color: 'var(--popover-foreground, rgba(255,255,255,0.88))'
+              color: 'var(--popover-foreground)'
             }}
           >
             {label}
           </span>
-          <span style={{ fontSize: 10, color: 'var(--muted-foreground, rgba(255,255,255,0.4))' }}>
-            {hint}
-          </span>
+          <span style={{ fontSize: 10, color: 'var(--muted-foreground)' }}>{hint}</span>
         </button>
       ))}
     </div>

@@ -83,7 +83,7 @@ export function CrewEdgeView({
         <path
           d={path}
           fill="none"
-          stroke="rgba(150,190,255,0.9)"
+          stroke="var(--crew-canvas-edge-fusion)"
           strokeWidth={preset.strokeWidth + 1}
           strokeLinecap="round"
           className="crew-edge__fusion"
@@ -95,7 +95,7 @@ export function CrewEdgeView({
         path={path}
         markerEnd={markerEnd}
         style={{
-          stroke: selected ? 'rgba(150,190,255,0.95)' : `rgba(140,170,230,${preset.opacity})`,
+          stroke: selected ? 'var(--crew-canvas-edge-selected)' : 'var(--crew-canvas-edge)',
           strokeWidth: selected ? preset.strokeWidth + 0.6 : preset.strokeWidth,
           strokeDasharray: preset.dasharray,
           strokeLinecap: 'round',

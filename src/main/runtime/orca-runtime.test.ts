@@ -9335,6 +9335,22 @@ describe('OrcaRuntimeService', () => {
       ])
     })
 
+    it('resolves command waits from the next OSC 133 completion', async () => {
+      const { runtime } = createSideEffectRuntime()
+      syncSinglePty(runtime)
+
+      const { terminals } = await runtime.listTerminals()
+      const token = runtime.prepareTerminalCommandWait(terminals[0]!.handle)
+      const wait = runtime.waitForTerminalCommand(token, { timeoutMs: 1_000 })
+
+      runtime.onPtyData('pty-1', '\x1b]133;D;7\x07', 100)
+
+      await expect(wait).resolves.toEqual({
+        handle: token.handle,
+        exitCode: 7
+      })
+    })
+
     it('emits pr-link facts once per URL with batch attribution', () => {
       const { runtime, batches } = createSideEffectRuntime()
       syncSinglePty(runtime)

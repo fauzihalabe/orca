@@ -53,12 +53,12 @@ export const TimerNode = memo(function TimerNode({ id, data, selected }: NodePro
   const reset = () => updateNodeData(id, { stopwatchStartedAt: undefined, stopwatchElapsedMs: 0 })
 
   const iconBtn: React.CSSProperties = {
-    background: 'rgba(255,255,255,0.06)',
-    border: '1px solid rgba(255,255,255,0.1)',
+    background: 'var(--crew-canvas-control-background)',
+    border: '1px solid var(--crew-canvas-control-border)',
     borderRadius: 7,
     padding: 5,
     cursor: 'pointer',
-    color: 'rgba(255,255,255,0.7)',
+    color: 'var(--crew-canvas-node-muted)',
     display: 'inline-flex'
   }
 
@@ -70,21 +70,26 @@ export const TimerNode = memo(function TimerNode({ id, data, selected }: NodePro
         height: '100%',
         display: 'flex',
         flexDirection: 'column',
-        background: '#131019',
-        border: `1px solid ${selected ? 'rgba(200,140,255,0.7)' : 'rgba(255,255,255,0.09)'}`,
+        background: 'var(--crew-canvas-timer-surface)',
+        border: `1px solid ${selected ? 'var(--crew-canvas-timer-accent)' : 'var(--crew-canvas-node-border)'}`,
         borderRadius: 12,
         overflow: 'hidden',
         boxShadow: selected
-          ? '0 0 0 3px rgba(200,140,255,0.15), 0 12px 32px rgba(0,0,0,0.5)'
-          : '0 8px 24px rgba(0,0,0,0.4)'
+          ? 'var(--crew-canvas-node-selected-shadow)'
+          : 'var(--crew-canvas-node-shadow)'
       }}
     >
       <NodeResizer
         isVisible={selected === true}
         minWidth={200}
         minHeight={140}
-        lineStyle={{ borderColor: 'rgba(122,162,255,0.4)' }}
-        handleStyle={{ width: 8, height: 8, borderRadius: 2, background: 'rgba(122,162,255,0.75)' }}
+        lineStyle={{ borderColor: 'var(--crew-canvas-primary-soft)' }}
+        handleStyle={{
+          width: 8,
+          height: 8,
+          borderRadius: 2,
+          background: 'var(--crew-canvas-handle)'
+        }}
       />
       <div
         className="crew-node-header drag-handle"
@@ -93,14 +98,16 @@ export const TimerNode = memo(function TimerNode({ id, data, selected }: NodePro
           alignItems: 'center',
           gap: 7,
           padding: '7px 10px',
-          borderBottom: '1px solid rgba(255,255,255,0.07)',
-          background: 'rgba(255,255,255,0.03)',
+          borderBottom: '1px solid var(--crew-canvas-node-header-border)',
+          background: 'var(--crew-canvas-node-header)',
           cursor: 'grab',
           userSelect: 'none'
         }}
       >
-        <Timer size={13} style={{ color: '#c88cff', flexShrink: 0 }} />
-        <span style={{ fontSize: 11.5, fontWeight: 600, color: 'rgba(255,255,255,0.85)' }}>
+        <Timer size={13} style={{ color: 'var(--crew-canvas-timer-accent)', flexShrink: 0 }} />
+        <span
+          style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--crew-canvas-node-foreground)' }}
+        >
           {translate('auto.components.canvas.TimerNode.title', 'timer')}
         </span>
       </div>
@@ -121,7 +128,9 @@ export const TimerNode = memo(function TimerNode({ id, data, selected }: NodePro
             fontWeight: 700,
             fontVariantNumeric: 'tabular-nums',
             letterSpacing: '-0.02em',
-            color: running ? '#e3c6ff' : 'rgba(255,255,255,0.75)'
+            color: running
+              ? 'var(--crew-canvas-timer-accent)'
+              : 'var(--crew-canvas-node-foreground)'
           }}
         >
           {display}
@@ -156,8 +165,16 @@ export const TimerNode = memo(function TimerNode({ id, data, selected }: NodePro
           </button>
         </div>
       </div>
-      <Handle type="target" position={Position.Left} style={{ width: 8, height: 8 }} />
-      <Handle type="source" position={Position.Right} style={{ width: 8, height: 8 }} />
+      <Handle
+        type="target"
+        position={Position.Left}
+        style={{ width: 8, height: 8, background: 'var(--crew-canvas-handle)' }}
+      />
+      <Handle
+        type="source"
+        position={Position.Right}
+        style={{ width: 8, height: 8, background: 'var(--crew-canvas-handle)' }}
+      />
     </div>
   )
 })

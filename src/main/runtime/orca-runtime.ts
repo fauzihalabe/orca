@@ -1990,6 +1990,25 @@ type TerminalWaiter = {
   abortCleanup: (() => void) | null
 }
 
+type TerminalCommandWaitToken = {
+  handle: string
+  ptyId: string
+  sequence: number
+}
+
+type TerminalCommandWaiter = {
+  token: TerminalCommandWaitToken
+  resolve: (result: RuntimeTerminalCommandWait) => void
+  reject: (error: Error) => void
+  timeout: NodeJS.Timeout | null
+  abortCleanup: (() => void) | null
+}
+
+export type RuntimeTerminalCommandWait = {
+  handle: string
+  exitCode: number | null
+}
+
 type MessageWaiter = {
   handle: string
   typeFilter: string[] | undefined
@@ -2902,6 +2921,9 @@ export class OrcaRuntimeService {
   private detachedPreAllocatedLeaves = new Map<string, RuntimeLeafRecord>()
   private graphSyncCallbacks: (() => void)[] = []
   private waitersByHandle = new Map<string, Set<TerminalWaiter>>()
+  private terminalCommandFinishedSequenceByPtyId = new Map<string, number>()
+  private terminalCommandExitCodeByPtyId = new Map<string, number | null>()
+  private terminalCommandWaitersByPtyId = new Map<string, Set<TerminalCommandWaiter>>()
   private ptyController: RuntimePtyController | null = null
   private notifier: RuntimeNotifier | null = null
   private crewCanvasRequestHandler:
@@ -10158,6 +10180,9 @@ export class OrcaRuntimeService {
   /** Record one derived side-effect fact: batched per chunk while applying
    *  bytes, emitted immediately for between-chunk facts (stale-title timer). */
   private recordTerminalSideEffectFact(ptyId: string, fact: TerminalSideEffectFact): void {
+    if (fact.kind === 'command-finished') {
+      this.recordTerminalCommandFinished(ptyId, fact.exitCode)
+    }
     if (!this.terminalSideEffectConsumerAvailable) {
       return
     }
@@ -10167,6 +10192,24 @@ export class OrcaRuntimeService {
       return
     }
     this.emitTerminalSideEffectBatch(ptyId, [fact])
+  }
+
+  private recordTerminalCommandFinished(ptyId: string, exitCode: number | null): void {
+    const sequence = (this.terminalCommandFinishedSequenceByPtyId.get(ptyId) ?? 0) + 1
+    this.terminalCommandFinishedSequenceByPtyId.set(ptyId, sequence)
+    this.terminalCommandExitCodeByPtyId.set(ptyId, exitCode)
+    const waiters = this.terminalCommandWaitersByPtyId.get(ptyId)
+    if (!waiters) {
+      return
+    }
+    for (const waiter of [...waiters]) {
+      if (sequence > waiter.token.sequence) {
+        this.resolveTerminalCommandWaiter(waiter, {
+          handle: waiter.token.handle,
+          exitCode
+        })
+      }
+    }
   }
 
   private emitTerminalSideEffectBatch(
@@ -10496,6 +10539,9 @@ export class OrcaRuntimeService {
   private resetTrackedTerminalStateForProviderGeneration(ptyId: string): void {
     // Why: a replacement daemon session can reuse the PTY id, but title/parser
     // state from the prior process must not bleed into its snapshots or chunks.
+    this.rejectTerminalCommandWaitersForPty(ptyId, 'terminal_handle_stale')
+    this.terminalCommandFinishedSequenceByPtyId.delete(ptyId)
+    this.terminalCommandExitCodeByPtyId.delete(ptyId)
     this.disposePtyTitleTracker(ptyId)
     this.oscTitleScanTailByPtyId.delete(ptyId)
     this.osc7ScanTailByPtyId.delete(ptyId)
@@ -13668,6 +13714,9 @@ export class OrcaRuntimeService {
     this.providerVisibleRetryAtByPtyId.delete(ptyId)
     this.agentStatusOscProcessorsByPtyId.delete(ptyId)
     this.terminalSpawnCommandsByPtyId.delete(ptyId)
+    this.rejectTerminalCommandWaitersForPty(ptyId, 'terminal_exited')
+    this.terminalCommandFinishedSequenceByPtyId.delete(ptyId)
+    this.terminalCommandExitCodeByPtyId.delete(ptyId)
     this.disposePtyTitleTracker(ptyId)
     this.oscTitleScanTailByPtyId.delete(ptyId)
     this.osc7ScanTailByPtyId.delete(ptyId)
@@ -16711,6 +16760,88 @@ export class OrcaRuntimeService {
       accepted: true,
       bytesWritten: Buffer.byteLength(payload, 'utf8')
     }
+  }
+
+  prepareTerminalCommandWait(handle: string): TerminalCommandWaitToken {
+    const ptyId = this.getTerminalCommandPtyId(handle)
+    return {
+      handle,
+      ptyId,
+      sequence: this.terminalCommandFinishedSequenceByPtyId.get(ptyId) ?? 0
+    }
+  }
+
+  async waitForTerminalCommand(
+    token: TerminalCommandWaitToken,
+    options: { timeoutMs?: number; signal?: AbortSignal } = {}
+  ): Promise<RuntimeTerminalCommandWait> {
+    const currentPtyId = this.getTerminalCommandPtyId(token.handle)
+    if (currentPtyId !== token.ptyId) {
+      throw new Error('terminal_handle_stale')
+    }
+    const currentSequence = this.terminalCommandFinishedSequenceByPtyId.get(token.ptyId) ?? 0
+    if (currentSequence > token.sequence) {
+      return {
+        handle: token.handle,
+        exitCode: this.terminalCommandExitCodeByPtyId.get(token.ptyId) ?? null
+      }
+    }
+
+    return await new Promise<RuntimeTerminalCommandWait>((resolve, reject) => {
+      const waiter: TerminalCommandWaiter = {
+        token,
+        resolve,
+        reject,
+        timeout: null,
+        abortCleanup: null
+      }
+      if (options.signal?.aborted) {
+        reject(new Error('request_aborted'))
+        return
+      }
+      if (options.signal) {
+        const onAbort = (): void => {
+          this.removeTerminalCommandWaiter(waiter)
+          reject(new Error('request_aborted'))
+        }
+        waiter.abortCleanup = () => options.signal?.removeEventListener('abort', onAbort)
+        options.signal.addEventListener('abort', onAbort, { once: true })
+      }
+      if (typeof options.timeoutMs === 'number' && options.timeoutMs > 0) {
+        waiter.timeout = setTimeout(() => {
+          this.removeTerminalCommandWaiter(waiter)
+          reject(new Error('timeout'))
+        }, options.timeoutMs)
+      }
+      let waiters = this.terminalCommandWaitersByPtyId.get(token.ptyId)
+      if (!waiters) {
+        waiters = new Set()
+        this.terminalCommandWaitersByPtyId.set(token.ptyId, waiters)
+      }
+      waiters.add(waiter)
+      const latestSequence = this.terminalCommandFinishedSequenceByPtyId.get(token.ptyId) ?? 0
+      if (latestSequence > token.sequence) {
+        this.resolveTerminalCommandWaiter(waiter, {
+          handle: token.handle,
+          exitCode: this.terminalCommandExitCodeByPtyId.get(token.ptyId) ?? null
+        })
+      }
+    })
+  }
+
+  private getTerminalCommandPtyId(handle: string): string {
+    const pty = this.getLivePtyForHandle(handle)
+    if (pty) {
+      if (!pty.pty.connected) {
+        throw new Error('terminal_exited')
+      }
+      return pty.pty.ptyId
+    }
+    const { leaf } = this.getLiveLeafForHandle(handle)
+    if (!leaf.connected || !leaf.ptyId) {
+      throw new Error('terminal_exited')
+    }
+    return leaf.ptyId
   }
 
   async sendTerminalAgentPrompt(
@@ -32232,6 +32363,43 @@ export class OrcaRuntimeService {
   private resolveWaiter(waiter: TerminalWaiter, result: RuntimeTerminalWait): void {
     this.removeWaiter(waiter)
     waiter.resolve(result)
+  }
+
+  private resolveTerminalCommandWaiter(
+    waiter: TerminalCommandWaiter,
+    result: RuntimeTerminalCommandWait
+  ): void {
+    this.removeTerminalCommandWaiter(waiter)
+    waiter.resolve(result)
+  }
+
+  private rejectTerminalCommandWaitersForPty(ptyId: string, code: string): void {
+    const waiters = this.terminalCommandWaitersByPtyId.get(ptyId)
+    if (!waiters) {
+      return
+    }
+    for (const waiter of [...waiters]) {
+      this.removeTerminalCommandWaiter(waiter)
+      waiter.reject(new Error(code))
+    }
+  }
+
+  private removeTerminalCommandWaiter(waiter: TerminalCommandWaiter): void {
+    if (waiter.timeout) {
+      clearTimeout(waiter.timeout)
+    }
+    if (waiter.abortCleanup) {
+      waiter.abortCleanup()
+      waiter.abortCleanup = null
+    }
+    const waiters = this.terminalCommandWaitersByPtyId.get(waiter.token.ptyId)
+    if (!waiters) {
+      return
+    }
+    waiters.delete(waiter)
+    if (waiters.size === 0) {
+      this.terminalCommandWaitersByPtyId.delete(waiter.token.ptyId)
+    }
   }
 
   private bindTerminalWaiterAbort(
