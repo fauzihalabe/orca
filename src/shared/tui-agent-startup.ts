@@ -8,6 +8,7 @@ import {
 import {
   quoteStartupArg,
   resolveStartupShell,
+  tokenizeStartupCommand,
   type AgentStartupShell
 } from './tui-agent-startup-shell'
 import { TUI_AGENT_CONFIG } from './tui-agent-config'
@@ -54,6 +55,41 @@ function appendNativeSystemPrompt(args: {
     return `${args.command} -c ${quoteStartupArg(`developer_instructions=${prompt}`, args.shell)}`
   }
   return args.command
+}
+
+function stripEmbeddedResumeArgs(args: {
+  command: string
+  resumeArgs: readonly string[]
+  shell: AgentStartupShell
+}): string {
+  if (args.resumeArgs.length === 0) {
+    return args.command
+  }
+  const tokenized = tokenizeStartupCommand(args.command, args.shell)
+  if (!tokenized.ok) {
+    return args.command
+  }
+  let tokens = tokenized.tokens
+  let removed = false
+  while (true) {
+    const start = tokens.findIndex(
+      (_, index) =>
+        index + args.resumeArgs.length <= tokens.length &&
+        args.resumeArgs.every((token, offset) => tokens[index + offset] === token)
+    )
+    if (start === -1) {
+      break
+    }
+    tokens = [...tokens.slice(0, start), ...tokens.slice(start + args.resumeArgs.length)]
+    removed = true
+  }
+  if (!removed || tokens.length === 0) {
+    return args.command
+  }
+  const prefix = tokens[0] === '&' ? '& ' : ''
+  const commandTokens = tokens[0] === '&' ? tokens.slice(1) : tokens
+  const [command, ...commandArgs] = commandTokens
+  return `${prefix}${command}${commandArgs.length > 0 ? ` ${commandArgs.map((token) => quoteStartupArg(token, args.shell)).join(' ')}` : ''}`
 }
 
 export function buildAgentStartupPlan(args: {
@@ -219,6 +255,7 @@ export function buildAgentResumeStartupPlan(args: {
   agentCommand?: string | null
   managedAccountId?: string | null
   ompResumeFilePath?: string | null
+  nativeSystemPrompt?: string | null
   sessionOptions?: Record<string, SessionOptionValue>
   /** Why: see buildAgentStartupPlan — remote launches use the plain `orca` shim. */
   isRemote?: boolean
@@ -230,8 +267,16 @@ export function buildAgentResumeStartupPlan(args: {
   const shell = resolveStartupShell(args.platform, args.shell)
   const config = TUI_AGENT_CONFIG[args.agent]
   const resolvedAgentCommand = args.agentCommand?.trim()
+  const resumeArgs = argv.slice(1)
   const baseCommand = resolvedAgentCommand
-    ? ({ ok: true, command: resolvedAgentCommand } as const)
+    ? ({
+        ok: true,
+        command: stripEmbeddedResumeArgs({
+          command: resolvedAgentCommand,
+          resumeArgs,
+          shell
+        })
+      } as const)
     : resolveAgentLaunchCommand({
         agent: args.agent,
         cmdOverrides: args.cmdOverrides,
@@ -243,15 +288,18 @@ export function buildAgentResumeStartupPlan(args: {
   if (!baseCommand.ok) {
     return null
   }
+  const nativeCommand = appendNativeSystemPrompt({
+    agent: args.agent,
+    command: baseCommand.command,
+    systemPrompt: args.nativeSystemPrompt,
+    shell
+  })
   const launchConfig = buildSleepingAgentLaunchConfig({
     ...args,
     agentCommand: baseCommand.command
   })
-  const resumeArgs = argv
-    .slice(1)
-    .map((arg) => quoteStartupArg(arg, shell))
-    .join(' ')
-  const launchCommand = resumeArgs ? `${baseCommand.command} ${resumeArgs}` : baseCommand.command
+  const resumeCommandArgs = resumeArgs.map((arg) => quoteStartupArg(arg, shell)).join(' ')
+  const launchCommand = resumeCommandArgs ? `${nativeCommand} ${resumeCommandArgs}` : nativeCommand
   return {
     agent: args.agent,
     launchCommand,

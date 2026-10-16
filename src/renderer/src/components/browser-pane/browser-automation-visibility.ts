@@ -122,7 +122,9 @@ export function releaseBrowserAutomationVisibility(token: string): boolean {
   return true
 }
 
-async function acquireForMainProcess(browserPageId: string): Promise<string | null> {
+export async function acquireBrowserAutomationVisibilityAfterPaint(
+  browserPageId: string
+): Promise<string | null> {
   if (typeof browserPageId !== 'string' || browserPageId.length === 0) {
     return null
   }
@@ -142,7 +144,7 @@ export function installBrowserAutomationVisibilityBridge(): void {
     return
   }
   window.__orcaBrowserAutomationVisibility = {
-    acquire: acquireForMainProcess,
+    acquire: acquireBrowserAutomationVisibilityAfterPaint,
     release: releaseBrowserAutomationVisibility
   }
 }

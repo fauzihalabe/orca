@@ -21,6 +21,8 @@ export const TerminalNode = memo(function TerminalNode({ id, data, selected }: N
         paneKey: mirror.paneKey,
         mirrorTabId: mirror.tabId,
         mirrorLeafId: mirror.leafId,
+        mirrorWorktreeId: mirror.worktreeId,
+        ...(mirror.ptyId ? { nativePtyId: mirror.ptyId } : {}),
         ...(durableId ? { ptySessionId: durableId } : {})
       })
     },

@@ -92,7 +92,7 @@ export class CrewCanvasOrchestration {
       }
       return this.waitForTask(caller, receipt.runId, dispatched, args.timeoutMs)
     } catch (error) {
-      return `erro no ask nativo: ${error instanceof Error ? error.message : String(error)}`
+      return `erro: ask nativo: ${error instanceof Error ? error.message : String(error)}`
     }
   }
 

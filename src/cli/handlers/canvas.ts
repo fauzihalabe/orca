@@ -1,4 +1,8 @@
 import type { CommandHandler, HandlerContext } from '../dispatch'
+import {
+  CREW_CANVAS_AGENT_TERMINAL_DISABLED_MESSAGE,
+  isCrewCanvasAgentTerminalTool
+} from '../../shared/crew-canvas-agent-terminal-policy'
 import { printResult } from '../format'
 import { getOptionalStringFlag, getRequiredStringFlag } from '../flags'
 import { RuntimeClientError } from '../runtime-client'
@@ -39,6 +43,12 @@ function formatCanvasResult(value: CanvasInvokeResult): string {
     : JSON.stringify(value.response ?? null, null, 2)
 }
 
+function assertCanvasAgentTool(tool: string): void {
+  if (isCrewCanvasAgentTerminalTool(tool)) {
+    throw new RuntimeClientError('invalid_argument', CREW_CANVAS_AGENT_TERMINAL_DISABLED_MESSAGE)
+  }
+}
+
 async function invokeCanvas(
   context: Pick<HandlerContext, 'client' | 'json'>,
   request: {
@@ -74,6 +84,7 @@ export const CANVAS_HANDLERS: Record<string, CommandHandler> = {
   },
   'canvas call': async ({ flags, client, json }) => {
     const tool = getRequiredStringFlag(flags, 'tool')
+    assertCanvasAgentTool(tool)
     const node = getOptionalStringFlag(flags, 'node')
     const args = parseArgsJson(getOptionalStringFlag(flags, 'args'))
     if (node) {

@@ -3,6 +3,7 @@ import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from '
 import { dirname, join } from 'node:path'
 import type { WebContents } from 'electron'
 import type {
+  CrewCanvasEdgeSnapshot,
   CrewCanvasNodeSnapshot,
   CrewCanvasPersistedState,
   CrewCanvasSyncResult,
@@ -202,6 +203,35 @@ export class CrewCanvasStateStore {
     this.persist()
     this.emitUpdate('mutation')
     return node
+  }
+
+  addConnectedNode(
+    caller: LocatedCanvasNode,
+    node: CrewCanvasNodeSnapshot,
+    edge: CrewCanvasEdgeSnapshot
+  ): LocatedCanvasNode {
+    const tab = this.state.tabs[caller.tab.tabId]
+    if (!tab?.graph.nodes.some((candidate) => candidate.id === caller.node.id)) {
+      throw new Error('Canvas caller disappeared')
+    }
+    const graph = sanitizeCrewCanvasGraph({
+      ...tab.graph,
+      nodes: [...tab.graph.nodes, node],
+      edges: [...tab.graph.edges, edge]
+    })
+    const nextTab = { ...tab, graph }
+    this.state = {
+      ...this.state,
+      revision: this.state.revision + 1,
+      tabs: { ...this.state.tabs, [tab.tabId]: nextTab }
+    }
+    this.persist()
+    this.emitUpdate('mutation')
+    const added = graph.nodes.find((candidate) => candidate.id === node.id)
+    if (!added) {
+      throw new Error('Canvas node was rejected')
+    }
+    return { node: added, tab: nextTab }
   }
 
   private load(): CrewCanvasPersistedState {

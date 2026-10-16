@@ -2,10 +2,21 @@ import { randomUUID } from 'node:crypto'
 import { ORCHESTRATION_CONTRACT_VERSION } from '../shared/protocol-version'
 import type { OrcaRuntimeService } from './runtime/orca-runtime'
 import { RpcDispatcher } from './runtime/rpc/dispatcher'
+import {
+  crewCanvasBrowserTextArgument,
+  crewCanvasBrowserWaitArgs,
+  formatCrewCanvasBrowserSnapshot,
+  normalizeCrewCanvasBrowserEvalExpression
+} from './crew-canvas-browser-adapter'
 import { crewCanvasJson, crewCanvasText, type LocatedCanvasNode } from './crew-canvas-graph'
 import type { CrewCanvasStateStore } from './crew-canvas-state'
 
 const NATIVE_REQUEST_TIMEOUT_MS = 150_000
+
+function nativeError(context: string, error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error)
+  return `erro: ${context}: ${message}`
+}
 
 export class CrewCanvasNativeTools {
   constructor(
@@ -13,14 +24,14 @@ export class CrewCanvasNativeTools {
     private readonly state: CrewCanvasStateStore
   ) {}
 
-  async call(method: string, params: Record<string, unknown>, prefix: string): Promise<string> {
+  async call(method: string, params: Record<string, unknown>, context: string): Promise<string> {
     if (!this.getRuntime()) {
-      return `${prefix}: runtime nativo indisponível`
+      return `erro: ${context}: runtime nativo indisponível`
     }
     try {
       return crewCanvasJson(await this.dispatch(method, params))
     } catch (error) {
-      return `${prefix}: ${error instanceof Error ? error.message : String(error)}`
+      return nativeError(context, error)
     }
   }
 
@@ -79,30 +90,78 @@ export class CrewCanvasNativeTools {
     const page = this.state.browserPageId(nodeId)
     const worktree = this.state.browserWorktreeId(nodeId)
     const target = { page, ...(worktree ? { worktree } : {}) }
-    const { nodeId: _nodeId, selector, js, ...nativeArgs } = args
+    const { nodeId: _nodeId, ...nativeArgs } = args
     void _nodeId
     if (tool === 'browser.navigate') {
       const url = crewCanvasText(args.url).trim()
       return url
-        ? this.call('browser.goto', { ...target, url }, 'erro no navegador')
+        ? this.call('browser.goto', { ...target, url }, 'navegador')
         : 'erro: url obrigatória'
     }
     if (tool === 'browser.read' || tool === 'browser.snapshot') {
-      return this.call('browser.snapshot', target, 'erro no navegador')
+      try {
+        return formatCrewCanvasBrowserSnapshot(
+          await this.dispatch('browser.snapshot', target),
+          args.maxBytes
+        )
+      } catch (error) {
+        return nativeError('navegador', error)
+      }
     }
     if (tool === 'browser.eval') {
-      const expression = crewCanvasText(args.expression ?? js)
+      const expression = crewCanvasBrowserTextArgument(args, ['expression', 'js', 'code'])
       return expression
-        ? this.call('browser.eval', { ...target, expression }, 'erro no navegador')
+        ? this.call(
+            'browser.eval',
+            { ...target, expression: normalizeCrewCanvasBrowserEvalExpression(expression) },
+            'navegador'
+          )
         : 'erro: expression/js obrigatório'
     }
+    if (tool === 'browser.type') {
+      const input = crewCanvasBrowserTextArgument(args, ['input', 'text', 'value'])
+      return input
+        ? this.call('browser.type', { ...target, input }, 'navegador')
+        : 'erro: input/text obrigatório'
+    }
+    if (tool === 'browser.wait') {
+      const waitArgs = crewCanvasBrowserWaitArgs(args)
+      return waitArgs
+        ? this.call('browser.wait', { ...target, ...waitArgs }, 'navegador')
+        : 'erro: browser.wait exige selector, text, url, load, fn, state ou timeout'
+    }
     if (tool === 'browser.click' || tool === 'browser.fill') {
-      return this.browserElementTool(tool, target, args, selector)
+      return this.browserElementTool(tool, target, args)
+    }
+    if (tool === 'browser.hover' || tool === 'browser.upload') {
+      const element = crewCanvasText(args.element ?? args.ref).trim()
+      return element
+        ? this.call(tool, { ...nativeArgs, ...target, element }, 'navegador')
+        : 'erro: element/ref obrigatório; use uma ref do browser.snapshot nativo'
     }
     if (tool === 'browser.network' || tool === 'browser.console') {
       return this.browserCaptureLog(nodeId, tool, args)
     }
-    return this.call(tool, { ...nativeArgs, ...target }, 'erro no navegador')
+    return this.call(tool, { ...nativeArgs, ...target }, 'navegador')
+  }
+
+  browserPageReady(nodeId: string): boolean {
+    const runtime = this.getRuntime()
+    if (!runtime) {
+      return false
+    }
+    return runtime.browserPageReady({ page: this.state.browserPageId(nodeId) })
+  }
+
+  async waitForBrowserPageReady(nodeId: string, timeoutMs = 4_000): Promise<boolean> {
+    const deadline = Date.now() + timeoutMs
+    while (Date.now() < deadline) {
+      if (this.browserPageReady(nodeId)) {
+        return true
+      }
+      await new Promise((resolve) => setTimeout(resolve, 50))
+    }
+    return this.browserPageReady(nodeId)
   }
 
   async browserCaptureLog(
@@ -122,109 +181,27 @@ export class CrewCanvasNativeTools {
         })
       )
     } catch (error) {
-      return `erro no navegador nativo: ${error instanceof Error ? error.message : String(error)}`
-    }
-  }
-
-  async terminalTool(
-    terminal: LocatedCanvasNode,
-    tool: string,
-    args: Record<string, unknown>
-  ): Promise<string> {
-    let handle: string
-    try {
-      handle = this.terminalIdentity(terminal, 'o terminal').handle
-    } catch (error) {
-      return `erro: ${error instanceof Error ? error.message : String(error)}`
-    }
-    try {
-      if (tool === 'terminal.read') {
-        return JSON.stringify(
-          await this.dispatch('terminal.read', {
-            terminal: handle,
-            ...(typeof args.cursor === 'number' ? { cursor: args.cursor } : {}),
-            ...(typeof args.limit === 'number' ? { limit: args.limit } : {})
-          })
-        )
-      }
-      const command = crewCanvasText(args.command ?? args.text)
-      if (!command.trim()) {
-        return 'erro: command/text obrigatório'
-      }
-      const runtime = this.getRuntime()
-      const runningAgent = runtime ? await runtime.isTerminalRunningAgent(handle) : false
-      const commandWaitToken =
-        runtime && !runningAgent && args.enter !== false
-          ? runtime.prepareTerminalCommandWait(handle)
-          : null
-      await this.dispatch('terminal.send', {
-        terminal: handle,
-        text: command,
-        enter: args.enter !== false
-      })
-      if (tool === 'terminal.send') {
-        return JSON.stringify({ sent: true })
-      }
-      const timeoutMs = typeof args.timeoutMs === 'number' ? args.timeoutMs : 60_000
-      if (runtime && args.enter !== false) {
-        const abort = new AbortController()
-        try {
-          if (runningAgent) {
-            await runtime.waitForTerminal(handle, {
-              condition: 'tui-idle',
-              timeoutMs,
-              signal: abort.signal
-            })
-          } else if (commandWaitToken) {
-            await runtime.waitForTerminalCommand(commandWaitToken, {
-              timeoutMs,
-              signal: abort.signal
-            })
-          }
-        } catch {
-        } finally {
-          abort.abort()
-        }
-      }
-      return JSON.stringify(
-        await this.dispatch('terminal.read', {
-          terminal: handle,
-          ...(typeof args.lines === 'number' ? { limit: args.lines } : { limit: 400 })
-        })
-      )
-    } catch (error) {
-      return `erro no terminal nativo: ${error instanceof Error ? error.message : String(error)}`
+      return nativeError('navegador nativo', error)
     }
   }
 
   private async browserElementTool(
     tool: 'browser.click' | 'browser.fill',
     target: Record<string, string>,
-    args: Record<string, unknown>,
-    selector: unknown
+    args: Record<string, unknown>
   ): Promise<string> {
     const element = crewCanvasText(args.element ?? args.ref).trim()
+    const value = crewCanvasBrowserTextArgument(args, ['value', 'text', 'input'])
+    if (tool === 'browser.fill' && value === undefined) {
+      return 'erro: value/text obrigatório'
+    }
     if (element) {
       return this.call(
         tool,
-        tool === 'browser.click'
-          ? { ...target, element }
-          : { ...target, element, value: crewCanvasText(args.value) },
-        'erro no navegador'
+        tool === 'browser.click' ? { ...target, element } : { ...target, element, value },
+        'navegador'
       )
     }
-    const css = crewCanvasText(selector).trim()
-    if (!css) {
-      return 'erro: element ou selector obrigatório'
-    }
-    const expression =
-      tool === 'browser.click'
-        ? `(() => { const el = document.querySelector(${JSON.stringify(css)}); if (!el) return 'not-found'; el.scrollIntoView({block:'center'}); el.click(); return 'clicked' })()`
-        : `(() => { const el = document.querySelector(${JSON.stringify(css)}); if (!el) return 'not-found'; el.focus(); el.value = ${JSON.stringify(crewCanvasText(args.value))}; el.dispatchEvent(new Event('input', {bubbles:true})); el.dispatchEvent(new Event('change', {bubbles:true})); return 'filled' })()`
-    const result = await this.call('browser.eval', { ...target, expression }, 'erro no navegador')
-    if (result === 'not-found') {
-      return `erro: ${css} não encontrado`
-    }
-    return tool === 'browser.click' ? `clicado ${css}` : `preenchido ${css}`
+    return 'erro: element/ref obrigatório; use uma ref do browser.snapshot nativo'
   }
 }

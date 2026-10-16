@@ -4,7 +4,8 @@ import { getDefaultSettings } from '../../../../shared/constants'
 import {
   applyTerminalAppearance,
   hexToRgba,
-  publishTerminalViewAttributesAtAppStart
+  publishTerminalViewAttributesAtAppStart,
+  resolveTerminalStartupColorQueryReplies
 } from './terminal-appearance'
 import { maybePushMode2031Flip } from './terminal-mode-2031-replies'
 import { safeFit } from '@/lib/pane-manager/pane-fit'
@@ -411,6 +412,30 @@ describe('publishTerminalViewAttributesAtAppStart', () => {
     const send = vi.fn(() => true)
     expect(publishTerminalViewAttributesAtAppStart(null, true, send)).toBe(false)
     expect(send).not.toHaveBeenCalled()
+  })
+})
+
+describe('resolveTerminalStartupColorQueryReplies', () => {
+  it('matches the composed dark terminal colors used by a native pane', () => {
+    const settings = { ...getDefaultSettings('/tmp'), theme: 'dark' as const }
+
+    expect(resolveTerminalStartupColorQueryReplies(settings, false)).toEqual({
+      foreground: '#ffffff',
+      background: '#282c34'
+    })
+  })
+
+  it('matches the composed light terminal colors used by a native pane', () => {
+    const settings = { ...getDefaultSettings('/tmp'), theme: 'light' as const }
+
+    expect(resolveTerminalStartupColorQueryReplies(settings, true)).toEqual({
+      foreground: '#2e3434',
+      background: '#ffffff'
+    })
+  })
+
+  it('does not invent startup colors before settings load', () => {
+    expect(resolveTerminalStartupColorQueryReplies(null, true)).toBeNull()
   })
 })
 

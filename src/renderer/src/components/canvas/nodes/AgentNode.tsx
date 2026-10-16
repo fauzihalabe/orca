@@ -5,22 +5,38 @@ import { FitAddon } from '@xterm/addon-fit'
 import '@xterm/xterm/css/xterm.css'
 import type { CrewCanvasNodeData } from '../canvas-store'
 import { getCrewCanvas, useCrewCanvasTab } from '../canvas-store'
-import { startSessionCapture } from './agent-session-capture'
 import {
-  closeCanvasAgentMirror,
+  closeCanvasTerminalMirror,
   ensureCanvasAgentMirror,
   type CanvasAgentMirror
 } from './canvas-agent-session'
+import {
+  canvasAgentNativeResumeForPane,
+  canvasAgentNativeResumeFromData,
+  startCanvasAgentNativeSessionCapture
+} from './canvas-agent-native-session'
 import { launchAgentBackgroundSession } from '@/lib/launch-agent-background-session'
 import type { TuiAgent } from '../../../../../shared/types'
 import { CREW_SPAWN_ENV_TO_DELETE } from '../crew-spawn-env'
 import { useCanvasTab } from '../canvas-tab-context'
 import { attachCrewTermClipboard, attachCrewTermFileDrop } from './crew-term-clipboard'
-import { buildAgentCommand, type PeerInfo } from './agent-command'
-import { buildCanvasTerminalTheme, useCanvasColorMode } from '../canvas-theme'
+import { buildAgentCommand } from './agent-command'
+import {
+  applyCanvasTerminalAppearance,
+  canvasTerminalOptions,
+  useCanvasTerminalAppearance
+} from '../canvas-terminal-appearance'
 import { subscribeToPtyData } from '@/components/terminal-pane/pty-data-sidecar-subscriptions'
 import { parsePaneKey } from '../../../../../shared/stable-pane-id'
 import { AgentNodeSurface } from './agent-node-surface'
+import { canMeasureCanvasTerminal, fitCanvasTerminalViewport } from './canvas-terminal-geometry'
+import { useCanvasTerminalRevealFit } from './use-canvas-terminal-reveal-fit'
+import { useAppStore } from '@/store'
+import {
+  finishCanvasTerminalReattach,
+  replayCanvasTerminalSnapshot
+} from './canvas-terminal-reattach'
+import { resolveCanvasAgentLaunchContext } from './canvas-agent-launch-context'
 
 // Agent node — spawns a REAL agent CLI in a PTY (Orca's pty:spawn) and renders
 // it with xterm. Node data persists and respawns on mount; a captured CLI
@@ -38,38 +54,56 @@ export const AgentNode = memo(function AgentNode({ id, data, selected }: NodePro
     linearIssueLabel?: string
   }
   const agentKind = d.agentKind ?? 'claude'
-  const { tabId, worktreeId, worktreePath } = useCanvasTab()
+  const { tabId, worktreeId, worktreePath, active } = useCanvasTab()
   const nodeCwd = d.cwd || worktreePath || undefined
   const updateNodeData = useCrewCanvasTab(tabId, (s) => s.updateNodeData)
   const [accountNonce, setAccountNonce] = useState(0)
   const containerRef = useRef<HTMLDivElement>(null)
   const termRef = useRef<Terminal | null>(null)
   const ptyIdRef = useRef<string | null>(null)
+  const activeRef = useRef(active)
+  const resizeViewportRef = useRef<() => void>(() => {})
   const [spawnError, setSpawnError] = useState<string | null>(null)
-  const colorMode = useCanvasColorMode()
+  const settings = useAppStore((state) => state.settings)
+  const terminalAppearance = useCanvasTerminalAppearance()
+  const terminalAppearanceRef = useRef(terminalAppearance)
+  const terminalSettingsRef = useRef(settings)
+  const terminalSettingsReady = settings !== null
+  terminalAppearanceRef.current = terminalAppearance
+  terminalSettingsRef.current = settings
+  activeRef.current = active
+  useCanvasTerminalRevealFit(active, resizeViewportRef)
 
   useEffect(() => {
     const container = containerRef.current
-    if (!container) {
+    const terminalSettings = terminalSettingsRef.current
+    if (!container || !terminalSettings) {
       return
     }
-    const term = new Terminal({
-      fontSize: 11,
-      fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
-      theme: buildCanvasTerminalTheme(),
-      cursorBlink: true,
-      scrollback: 5000,
-      convertEol: true
-    })
+    const term = new Terminal(
+      canvasTerminalOptions(terminalAppearanceRef.current, terminalSettings)
+    )
     const fit = new FitAddon()
     term.loadAddon(fit)
     term.open(container)
-    fit.fit()
     termRef.current = term
 
     let disposed = false
     let removeDataListener: (() => void) | null = null
     let removeExitListener: (() => void) | null = null
+    let stopSessionCapture = (): void => {}
+
+    const fitVisibleTerminal = (): void => {
+      const dimensions = fitCanvasTerminalViewport({
+        active: activeRef.current,
+        container,
+        fitAddon: fit
+      })
+      if (dimensions && ptyIdRef.current) {
+        window.api.pty.resize(ptyIdRef.current, dimensions.cols, dimensions.rows)
+      }
+    }
+    resizeViewportRef.current = fitVisibleTerminal
 
     const detachClipboard = attachCrewTermClipboard(container, term, () => ptyIdRef.current)
     const detachFileDrop = attachCrewTermFileDrop(container, term, () => ptyIdRef.current)
@@ -78,12 +112,12 @@ export const AgentNode = memo(function AgentNode({ id, data, selected }: NodePro
     // breaks xterm layout for good. Wait for real size before opening the PTY.
     const waitForVisibleSize = () =>
       new Promise<void>((resolve) => {
-        if (container.clientHeight > 0) {
+        if (canMeasureCanvasTerminal(container)) {
           resolve()
           return
         }
         const gate = new ResizeObserver(() => {
-          if (container.clientHeight > 0) {
+          if (canMeasureCanvasTerminal(container)) {
             gate.disconnect()
             resolve()
           }
@@ -98,74 +132,17 @@ export const AgentNode = memo(function AgentNode({ id, data, selected }: NodePro
         if (disposed) {
           return
         }
-        fit.fit()
-        const graph = getCrewCanvas(tabId)
-        const linked = graph.edges
-          .filter((e) => e.source === id || e.target === id)
-          .map((e) => graph.nodes.find((n) => n.id === (e.source === id ? e.target : e.source)))
-          .filter(Boolean)
-        const peers: PeerInfo[] = linked
-          .filter((n) => n!.data.kind === 'agent')
-          .map((n) => ({
-            label: String(n!.data.label ?? n!.data.agentKind ?? 'agente'),
-            role: String(n!.data.role ?? '')
-          }))
-        const connectedNotes = linked
-          .filter((n) => n!.data.kind === 'note' && String(n!.data.text ?? '').trim().length > 0)
-          .map((n) => String(n!.data.text))
-        const connectedKinds = [...new Set(linked.map((n) => String(n!.data.kind)))]
-        const connectedBrowserPageIds = linked
-          .filter((n) => n!.data.kind === 'browser')
-          .map((n) =>
-            typeof n!.data.browserPageId === 'string' && n!.data.browserPageId.trim().length > 0
-              ? n!.data.browserPageId
-              : `canvas-${n!.id}`
-          )
-        // The bridge credential is scoped to this stable node id. A shared
-        // token would let one local agent impersonate another after a restart.
-        const bridge = await window.api.crew.getBridgeInfo({ nodeId: id })
-        // Read fresh from the store at spawn time — cliSessionId/cliResumeCommand
-        // are written by the capture poll and must NOT retrigger this effect.
-        const fresh = getCrewCanvas(tabId).nodes.find((n) => n.id === id)?.data as
-          | {
-              cliSessionId?: string
-              cliResumeCommand?: string
-              linearIssueId?: string
-              paneKey?: string
-              mirrorTabId?: string
-              mirrorLeafId?: string
-              ptySessionId?: string
-            }
-          | undefined
-        let linearContext: string | undefined
-        if (fresh?.linearIssueId) {
-          try {
-            const issue = await window.api.linear.getIssue({ id: fresh.linearIssueId })
-            if (issue) {
-              linearContext =
-                `Issue Linear linkada a você: ${issue.identifier} — ${issue.title} (estado: ${issue.state.name})\n` +
-                `${issue.url}\n${issue.description?.trim() ? `${issue.description.trim()}\n` : ''}` +
-                `Ao trabalhar nela, atualize-a pela CLI do Orca (já no PATH): \`orca linear\` — comente o progresso e mova o estado ao concluir.`
-            }
-          } catch {
-            // Linear offline/desconectado — o agente segue sem o contexto da issue
-          }
-        }
-        const selfLabel = String(d.label ?? agentKind)
-        const launch = buildAgentCommand(
-          agentKind,
-          d.role,
-          selfLabel,
-          peers,
+        fitVisibleTerminal()
+        const {
           bridge,
-          d.args,
+          peers,
           connectedNotes,
           connectedKinds,
-          fresh?.cliResumeCommand,
-          linearContext,
           connectedBrowserPageIds,
-          id
-        )
+          fresh,
+          linearContext
+        } = await resolveCanvasAgentLaunchContext(tabId, id)
+        const selfLabel = String(d.label ?? agentKind)
         if (!worktreeId) {
           throw new Error('agentes precisam de uma aba canvas de worktree (sem worktree aqui)')
         }
@@ -186,9 +163,27 @@ export const AgentNode = memo(function AgentNode({ id, data, selected }: NodePro
           updateNodeData(id, {
             paneKey: mirror.paneKey,
             mirrorTabId: mirror.tabId,
-            mirrorLeafId: mirror.leafId
+            mirrorLeafId: mirror.leafId,
+            mirrorWorktreeId: mirror.worktreeId
           })
         }
+        const nativeResume =
+          canvasAgentNativeResumeFromData(agentKind, fresh ?? {}) ??
+          (mirror ? canvasAgentNativeResumeForPane(agentKind, mirror.paneKey) : null)
+        const launch = buildAgentCommand(
+          agentKind,
+          d.role,
+          selfLabel,
+          peers,
+          bridge,
+          d.args,
+          connectedNotes,
+          connectedKinds,
+          nativeResume ? undefined : fresh?.cliResumeCommand,
+          linearContext,
+          connectedBrowserPageIds,
+          id
+        )
 
         const attachPty = async (
           ptyId: string,
@@ -203,6 +198,20 @@ export const AgentNode = memo(function AgentNode({ id, data, selected }: NodePro
             return
           }
           ptyIdRef.current = ptyId
+          let replaying = true
+          const queuedLiveChunks: string[] = []
+          if (options?.subscribe !== false) {
+            removeDataListener = subscribeToPtyData(ptyId, (chunk) => {
+              if (disposed) {
+                return
+              }
+              if (replaying) {
+                queuedLiveChunks.push(chunk)
+                return
+              }
+              term.write(chunk)
+            })
+          }
           if (initial?.replay) {
             term.write(initial.replay)
           } else if (initial?.snapshot) {
@@ -213,19 +222,25 @@ export const AgentNode = memo(function AgentNode({ id, data, selected }: NodePro
             const current = await window.api.pty
               .getMainBufferSnapshot(ptyId, { scrollbackRows: 5000 })
               .catch(() => null)
-            if (!disposed && current?.data) {
-              term.write(current.data)
+            if (!disposed && current) {
+              await replayCanvasTerminalSnapshot(term, current)
             }
           }
           if (disposed) {
             return
           }
-          if (options?.subscribe !== false) {
-            removeDataListener = subscribeToPtyData(ptyId, (chunk) => {
-              if (!disposed) {
-                term.write(chunk)
-              }
-            })
+          replaying = false
+          for (const chunk of queuedLiveChunks) {
+            term.write(chunk)
+          }
+          await finishCanvasTerminalReattach({
+            terminal: term,
+            ptyId,
+            fitViewport: fitVisibleTerminal,
+            shouldContinue: () => !disposed
+          })
+          if (disposed) {
+            return
           }
           removeExitListener = window.api.pty.onExit((event) => {
             if (event.id === ptyId && !disposed) {
@@ -240,21 +255,17 @@ export const AgentNode = memo(function AgentNode({ id, data, selected }: NodePro
         }
 
         if (mirror?.reusedExistingPty && mirror.ptyId) {
+          if (disposed) {
+            return
+          }
+          stopSessionCapture = startCanvasAgentNativeSessionCapture({
+            nodeId: id,
+            paneKey: mirror.paneKey,
+            agentKind,
+            updateNodeData
+          })
           await attachPty(mirror.ptyId)
           return
-        }
-
-        if (mirror) {
-          // A stale persisted identity must not be reused as an empty tab.
-          // Return it to the normal Orca launcher, which owns PTY creation,
-          // tab registration, persistence and mobile mirroring atomically.
-          updateNodeData(id, {
-            paneKey: undefined,
-            mirrorTabId: undefined,
-            mirrorLeafId: undefined
-          })
-          closeCanvasAgentMirror(mirror)
-          mirror = null
         }
 
         const result = await launchAgentBackgroundSession({
@@ -263,6 +274,16 @@ export const AgentNode = memo(function AgentNode({ id, data, selected }: NodePro
           ...(launch.agentArgs !== undefined ? { agentArgs: launch.agentArgs } : {}),
           ...(launch.systemPrompt ? { nativeSystemPrompt: launch.systemPrompt } : {}),
           ...(launch.env ? { agentEnv: launch.env } : {}),
+          ...(nativeResume ? { resume: nativeResume } : {}),
+          ...(mirror
+            ? {
+                nativeTab: {
+                  tabId: mirror.tabId,
+                  leafId: mirror.leafId,
+                  paneKey: mirror.paneKey
+                }
+              }
+            : {}),
           ...(agentKind === 'codex' && d.managedAccountId !== undefined
             ? { managedAccountId: d.managedAccountId }
             : {}),
@@ -290,37 +311,32 @@ export const AgentNode = memo(function AgentNode({ id, data, selected }: NodePro
         updateNodeData(id, {
           paneKey: result.paneKey,
           mirrorTabId: result.tabId,
-          mirrorLeafId: parsePaneKey(result.paneKey)?.leafId
+          mirrorLeafId: parsePaneKey(result.paneKey)?.leafId,
+          mirrorWorktreeId: worktreeId,
+          agentLaunchConfig: result.startupPlan.launchConfig,
+          ...(Object.prototype.hasOwnProperty.call(
+            result.startupPlan.launchConfig,
+            'managedAccountId'
+          )
+            ? { managedAccountId: result.startupPlan.launchConfig.managedAccountId }
+            : {})
+        })
+        stopSessionCapture = startCanvasAgentNativeSessionCapture({
+          nodeId: id,
+          paneKey: result.paneKey,
+          agentKind,
+          updateNodeData
         })
         await attachPty(result.ptyId, undefined, { subscribe: false, readSnapshot: false })
       } catch (error) {
         if (!disposed) {
-          if (mirror && !mirror.reusedExistingPty && !ptyIdRef.current) {
-            closeCanvasAgentMirror(mirror)
-          }
           setSpawnError(error instanceof Error ? error.message : String(error))
         }
       }
     }
     void spawn()
 
-    // Session capture: poll Orca's AI Vault for the CLI session this node is
-    // running, so an app restart can relaunch with the real `--resume` command.
-    const stopSessionCapture = startSessionCapture({
-      nodeId: id,
-      agentKind,
-      cwd: nodeCwd,
-      tabId,
-      updateNodeData
-    })
-
-    const observer = new ResizeObserver(() => {
-      fit.fit()
-      const dims = fit.proposeDimensions()
-      if (dims && ptyIdRef.current) {
-        window.api.pty.resize(ptyIdRef.current, dims.cols, dims.rows)
-      }
-    })
+    const observer = new ResizeObserver(fitVisibleTerminal)
     observer.observe(container)
 
     return () => {
@@ -332,6 +348,8 @@ export const AgentNode = memo(function AgentNode({ id, data, selected }: NodePro
       removeDataListener?.()
       removeExitListener?.()
       term.dispose()
+      termRef.current = null
+      resizeViewportRef.current = () => {}
     }
   }, [
     id,
@@ -344,20 +362,21 @@ export const AgentNode = memo(function AgentNode({ id, data, selected }: NodePro
     d.label,
     accountNonce,
     tabId,
+    terminalSettingsReady,
     updateNodeData
   ])
 
   useEffect(() => {
     const term = termRef.current
     if (term) {
-      term.options.theme = buildCanvasTerminalTheme()
+      applyCanvasTerminalAppearance(term, terminalAppearance)
     }
-  }, [colorMode])
+  }, [terminalAppearance])
 
   const handleAccountChanged = (managedAccountId?: string | null): void => {
     const current = getCrewCanvas(tabId).nodes.find((node) => node.id === id)?.data
     if (current) {
-      closeCanvasAgentMirror(current)
+      closeCanvasTerminalMirror(current)
     }
     updateNodeData(id, {
       managedAccountId,

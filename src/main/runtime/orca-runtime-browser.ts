@@ -199,6 +199,11 @@ export class RuntimeBrowserCommands {
     return Boolean(guest && !guest.isDestroyed())
   }
 
+  browserPageReady(params: { page: string }): boolean {
+    const bridge = this.host.getAgentBrowserBridge()
+    return Boolean(bridge && this.hasLiveRegisteredBrowserPage(bridge, undefined, params.page))
+  }
+
   // Why: the CLI sends selectors (e.g. "path:/...") but the bridge keys tabs by "repoId::path"; resolve to that store-compatible id.
   private async resolveBrowserWorktreeId(selector?: string): Promise<string | undefined> {
     if (!selector) {

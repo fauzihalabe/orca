@@ -1,6 +1,10 @@
 import type { ParsedAgentStatusPayload } from '../../../shared/agent-status-types'
 import type { LaunchSource } from '../../../shared/telemetry-events'
 import type { TuiAgent } from '../../../shared/types'
+import type {
+  AgentProviderSessionMetadata,
+  SleepingAgentLaunchConfig
+} from '../../../shared/agent-session-resume'
 import type { AgentStartupPlan } from '@/lib/tui-agent-startup'
 import type { AutomationTerminalOwnership } from '@/lib/automation-terminal-ownership'
 
@@ -12,6 +16,10 @@ export type LaunchAgentBackgroundSessionArgs = {
     tabId: string
     leafId: string
     paneKey: string
+  }
+  resume?: {
+    providerSession: AgentProviderSessionMetadata
+    launchConfig?: SleepingAgentLaunchConfig
   }
   prompt?: string
   launchSource?: LaunchSource

@@ -41,6 +41,7 @@ export type AgentBackgroundSessionTestState = {
   ptyIdsByTabId: Record<string, string[]>
   sshConnectionStates: Map<string, { status: string }>
   transientClearedAgentStatusConnectionIds: Record<string, true>
+  automaticAgentResumeClaimsByTabId: Record<string, unknown>
   allWorktrees: () => { id: string; repoId: string; path: string }[]
   getKnownWorktreeById: (worktreeId: string) => { id: string; path: string } | undefined
   createTab: TestMock
@@ -52,6 +53,8 @@ export type AgentBackgroundSessionTestState = {
   setAgentStatus: TestMock
   registerAgentLaunchConfig: TestMock
   clearAgentLaunchConfig: TestMock
+  claimAutomaticAgentResume: TestMock
+  clearSleepingAgentSession: TestMock
 }
 
 export function createAgentBackgroundSessionTestState(mocks: {
@@ -105,6 +108,7 @@ export function createAgentBackgroundSessionTestState(mocks: {
     ptyIdsByTabId: {} as Record<string, string[]>,
     sshConnectionStates: new Map<string, { status: string }>(),
     transientClearedAgentStatusConnectionIds: {} as Record<string, true>,
+    automaticAgentResumeClaimsByTabId: {} as Record<string, unknown>,
     allWorktrees: () => state.worktreesByRepo['repo-1'],
     getKnownWorktreeById: (worktreeId: string) =>
       state.worktreesByRepo['repo-1']?.find((worktree) => worktree.id === worktreeId),
@@ -116,7 +120,11 @@ export function createAgentBackgroundSessionTestState(mocks: {
     clearTabPtyId: vi.fn(),
     setAgentStatus: vi.fn(),
     registerAgentLaunchConfig: mocks.registerAgentLaunchConfig,
-    clearAgentLaunchConfig: vi.fn()
+    clearAgentLaunchConfig: vi.fn(),
+    claimAutomaticAgentResume: vi.fn((tabId: string, claim: unknown) => {
+      state.automaticAgentResumeClaimsByTabId[tabId] = claim
+    }),
+    clearSleepingAgentSession: vi.fn()
   }
   return state
 }
@@ -150,6 +158,9 @@ export function resetAgentBackgroundSessionTestState(state: AgentBackgroundSessi
   state.ptyIdsByTabId = {}
   state.sshConnectionStates = new Map()
   state.transientClearedAgentStatusConnectionIds = {}
+  state.automaticAgentResumeClaimsByTabId = {}
+  state.claimAutomaticAgentResume.mockClear()
+  state.clearSleepingAgentSession.mockClear()
   // Why: restored here so a test that stubs folder-workspace lookup cannot leak it forward.
   state.getKnownWorktreeById = (worktreeId: string) =>
     state.worktreesByRepo['repo-1']?.find((worktree) => worktree.id === worktreeId)

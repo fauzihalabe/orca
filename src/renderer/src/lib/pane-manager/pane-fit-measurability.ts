@@ -10,6 +10,25 @@ const MIN_PANE_FIT_HEIGHT_PX = 24
 const MIN_PANE_FIT_COLS = 8
 const MIN_PANE_FIT_ROWS = 4
 
+type TerminalFitDimensions = { cols: number; rows: number }
+
+export function canMeasureTerminalPixelBox(width: number, height: number): boolean {
+  return width >= MIN_PANE_FIT_WIDTH_PX && height >= MIN_PANE_FIT_HEIGHT_PX
+}
+
+export function canMeasureTerminalFit(
+  width: number,
+  height: number,
+  dimensions: TerminalFitDimensions | null | undefined
+): dimensions is TerminalFitDimensions {
+  return Boolean(
+    dimensions &&
+    canMeasureTerminalPixelBox(width, height) &&
+    dimensions.cols >= MIN_PANE_FIT_COLS &&
+    dimensions.rows >= MIN_PANE_FIT_ROWS
+  )
+}
+
 export function getProposedPaneDimensions(
   pane: ManagedPane
 ): { cols: number; rows: number } | null {
@@ -26,20 +45,16 @@ function hasPaneFitPixelBox(pane: ManagedPane): boolean {
     return true
   }
   const rect = measure.call(pane.container)
-  return rect.width >= MIN_PANE_FIT_WIDTH_PX && rect.height >= MIN_PANE_FIT_HEIGHT_PX
+  return canMeasureTerminalPixelBox(rect.width, rect.height)
 }
 
 export function canMeasurePaneForFit(pane: ManagedPane): boolean {
-  if (!hasPaneFitPixelBox(pane)) {
-    return false
-  }
+  const measure = pane.container?.getBoundingClientRect
+  const rect = typeof measure === 'function' ? measure.call(pane.container) : null
   const dims = getProposedPaneDimensions(pane)
-  if (!dims) {
-    return false
-  }
-  // Why: worktree switches can briefly measure a near-zero overlay before
-  // fallback positioning lands. Fitting there pins the PTY at ~2 cols.
-  return dims.cols >= MIN_PANE_FIT_COLS && dims.rows >= MIN_PANE_FIT_ROWS
+  return rect
+    ? canMeasureTerminalFit(rect.width, rect.height, dims)
+    : Boolean(dims && dims.cols >= MIN_PANE_FIT_COLS && dims.rows >= MIN_PANE_FIT_ROWS)
 }
 
 /** Why only the pixel box, not the fit floor: a pane held at the 50px divider

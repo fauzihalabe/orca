@@ -121,7 +121,7 @@ describe('Canvas agent launch command', () => {
     expect(launch.agentArgs).toContain('mcp_servers.orca_canvas.args')
   })
 
-  it('describes terminal.run as an inline native read', () => {
+  it('keeps Canvas terminals unavailable even when a terminal node is connected', () => {
     const launch = buildAgentCommand(
       'codex',
       undefined,
@@ -134,7 +134,13 @@ describe('Canvas agent launch command', () => {
     )
     const prompt = launch.env?.CREW_SYSTEM_PROMPT ?? ''
 
-    expect(prompt).toContain('retorna a leitura inline em uma chamada')
-    expect(prompt).toContain('não chame "terminal.read" automaticamente depois')
+    expect(prompt).toContain('terminais do Canvas não são tools de agente')
+    expect(prompt).toContain('somente a tool nativa interna de terminal do próprio agente')
+    expect(prompt).toContain('O AgentNode apenas espelha o PTY nativo do agente')
+    expect(prompt).toContain('substitui qualquer texto antigo de uma sessão recuperada')
+    expect(prompt).not.toContain('"terminal.spawn"')
+    expect(prompt).not.toContain('terminal.run')
+    expect(prompt).not.toContain('terminal.read')
+    expect(prompt).not.toContain('terminal.send')
   })
 })

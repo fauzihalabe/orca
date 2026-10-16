@@ -4954,6 +4954,50 @@ describe('OrcaRuntimeRpcServer', () => {
       }
     })
 
+    it('emits keepalive frames while a Canvas native operation is pending', async () => {
+      const userDataPath = mkdtempSync(join(tmpdir(), 'orca-runtime-rpc-'))
+      const runtime = new OrcaRuntimeService()
+      vi.spyOn(runtime, 'invokeCrewCanvas').mockImplementation(
+        () =>
+          new Promise((resolve) => {
+            setTimeout(() => resolve('{"ready":true}'), 180)
+          })
+      )
+      const server = new OrcaRuntimeRpcServer({
+        runtime,
+        userDataPath,
+        keepaliveIntervalMs: 40
+      })
+      await server.start()
+
+      try {
+        const metadata = readRuntimeMetadata(userDataPath)
+        const session = openFramedSession(metadata!.transports[0]!.endpoint, {
+          id: 'req_canvas_wait',
+          authToken: metadata!.authToken,
+          method: 'canvas.invoke',
+          params: {
+            from: 'agent-1',
+            tool: 'browser.wait',
+            args: { selector: '[data-ready]' }
+          }
+        })
+        await session.done
+
+        const keepalives = session.frames.filter((frame) => frame._keepalive === true)
+        const operationFrames = session.frames.filter((frame) => frame.ok !== undefined)
+        expect(keepalives.length).toBeGreaterThanOrEqual(3)
+        expect(operationFrames).toHaveLength(1)
+        expect(operationFrames[0]).toMatchObject({
+          id: 'req_canvas_wait',
+          ok: true,
+          result: { response: { ready: true } }
+        })
+      } finally {
+        await server.stop()
+      }
+    })
+
     it('emits keepalive frames while terminal.wait blocks and returns its structured timeout', async () => {
       const userDataPath = mkdtempSync(join(tmpdir(), 'orca-runtime-rpc-'))
       const runtime = new OrcaRuntimeService()

@@ -37,11 +37,21 @@ const state = createAgentBackgroundSessionTestState({
   registerAgentLaunchConfig: mockRegisterAgentLaunchConfig
 })
 let currentStoreState = state
+type BackgroundStoreState = typeof state
 
 vi.mock('@/store', () => ({
   useAppStore: {
     getState: () => currentStoreState,
-    subscribe: vi.fn(() => () => {})
+    subscribe: vi.fn(() => () => {}),
+    setState: vi.fn(
+      (
+        update: (
+          state: BackgroundStoreState
+        ) => Partial<BackgroundStoreState> | BackgroundStoreState
+      ) => {
+        Object.assign(currentStoreState, update(currentStoreState))
+      }
+    )
   }
 }))
 
@@ -130,7 +140,11 @@ describe('launchAgentBackgroundSession', () => {
         }),
         connectionId: null,
         worktreeId: 'wt-1',
-        tabId
+        tabId,
+        terminalColorQueryReplies: {
+          foreground: '#ffffff',
+          background: '#282c34'
+        }
       })
     )
     const paneKey = expectStableAgentBackgroundPaneSpawn(mockSpawn)
@@ -191,6 +205,88 @@ describe('launchAgentBackgroundSession', () => {
     expect(mockSpawn).toHaveBeenCalledWith(expect.objectContaining({ tabId, leafId }))
     expect(result).toMatchObject({ tabId, ptyId: 'pty-1' })
     expect(mockUpdateTabPtyId).toHaveBeenCalledWith(tabId, 'pty-1')
+  })
+
+  it('resumes a Canvas agent in its native pane with the captured account', async () => {
+    const tabId = '44444444-4444-4444-8444-444444444444'
+    const leafId = '55555555-5555-4555-8555-555555555555'
+    const paneKey = `${tabId}:${leafId}`
+    state.tabsByWorktree['wt-1'].push({
+      id: tabId,
+      title: 'Canvas · codex',
+      worktreeId: 'wt-1'
+    } as never)
+    const { launchAgentBackgroundSession } = await import('./launch-agent-background-session')
+
+    const result = await launchAgentBackgroundSession({
+      agent: 'codex',
+      worktreeId: 'wt-1',
+      nativeSystemPrompt: 'canvas native instructions',
+      agentEnv: { ORCA_CREW_BRIDGE_TOKEN: 'fresh-token' },
+      nativeTab: { tabId, leafId, paneKey },
+      resume: {
+        providerSession: { key: 'session_id', id: 'session-canvas' },
+        launchConfig: {
+          agentCommand: 'codex --profile captured',
+          agentArgs: '--profile captured',
+          agentEnv: { SAVED_ENV: 'saved-value', ORCA_CREW_BRIDGE_TOKEN: 'stale-token' },
+          managedAccountId: 'account-canvas'
+        }
+      }
+    })
+
+    expect(mockCreateTab).not.toHaveBeenCalled()
+    expect(mockSpawn).toHaveBeenCalledWith(
+      expect.objectContaining({
+        tabId,
+        leafId,
+        resumeProviderSession: { key: 'session_id', id: 'session-canvas' },
+        launchConfig: expect.objectContaining({
+          agentCommand: 'codex --profile captured',
+          managedAccountId: 'account-canvas'
+        }),
+        env: expect.objectContaining({
+          SAVED_ENV: 'saved-value',
+          ORCA_CREW_BRIDGE_TOKEN: 'fresh-token'
+        }),
+        telemetry: expect.objectContaining({ request_kind: 'resume' })
+      })
+    )
+    const command = mockSpawn.mock.calls[0]?.[0].command as string
+    expect(command).toContain('canvas native instructions')
+    expect(command).toContain("'resume' 'session-canvas'")
+    expect(command.match(/'resume'/g)).toHaveLength(1)
+    expect(state.claimAutomaticAgentResume).toHaveBeenCalledWith(tabId, {
+      worktreeId: 'wt-1',
+      launchAgent: 'codex',
+      providerSession: { key: 'session_id', id: 'session-canvas' }
+    })
+    expect(state.clearSleepingAgentSession).toHaveBeenCalledWith(paneKey)
+    expect(result).toMatchObject({ tabId, paneKey, ptyId: 'pty-1' })
+  })
+
+  it('keeps the native Canvas tab when a session resume fails', async () => {
+    const tabId = '66666666-6666-4666-8666-666666666666'
+    const leafId = '77777777-7777-4777-8777-777777777777'
+    state.tabsByWorktree['wt-1'].push({
+      id: tabId,
+      title: 'Canvas · codex',
+      worktreeId: 'wt-1'
+    } as never)
+    mockSpawn.mockRejectedValueOnce(new Error('resume failed'))
+    const { launchAgentBackgroundSession } = await import('./launch-agent-background-session')
+
+    await expect(
+      launchAgentBackgroundSession({
+        agent: 'codex',
+        worktreeId: 'wt-1',
+        nativeTab: { tabId, leafId, paneKey: `${tabId}:${leafId}` },
+        resume: { providerSession: { key: 'session_id', id: 'session-canvas' } }
+      })
+    ).rejects.toThrow('resume failed')
+
+    expect(mockCloseTab).not.toHaveBeenCalled()
+    expect(state.automaticAgentResumeClaimsByTabId).toEqual({})
   })
 
   it('does not create or mount the tab while the explicit PTY spawn is unresolved', async () => {

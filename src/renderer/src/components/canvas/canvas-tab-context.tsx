@@ -17,13 +17,15 @@ type CanvasTabInfo = {
   worktreeId: string | null
   worktreePath: string | null
   active: boolean
+  acceptsKeyboardInput: boolean
 }
 
 const DEFAULT_INFO: CanvasTabInfo = {
   tabId: 'default',
   worktreeId: null,
   worktreePath: null,
-  active: true
+  active: true,
+  acceptsKeyboardInput: true
 }
 
 const CanvasTabContext = createContext<CanvasTabInfo>(DEFAULT_INFO)
@@ -33,12 +35,14 @@ export function CanvasTabProvider({
   worktreeId,
   worktreePath,
   active = true,
+  acceptsKeyboardInput = active,
   children
 }: {
   tabId: string
   worktreeId?: string | null
   worktreePath?: string | null
   active?: boolean
+  acceptsKeyboardInput?: boolean
   children: ReactNode
 }) {
   const value = useMemo(
@@ -46,9 +50,10 @@ export function CanvasTabProvider({
       tabId,
       worktreeId: worktreeId ?? null,
       worktreePath: worktreePath ?? null,
-      active
+      active,
+      acceptsKeyboardInput
     }),
-    [tabId, worktreeId, worktreePath, active]
+    [tabId, worktreeId, worktreePath, active, acceptsKeyboardInput]
   )
   return <CanvasTabContext.Provider value={value}>{children}</CanvasTabContext.Provider>
 }

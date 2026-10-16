@@ -488,7 +488,7 @@ describe('browserManager', () => {
     // the popup must get guest policies (nav guards, recursive popup handling)
     // attached directly here.
     expect(popupContents.setWindowOpenHandler).toHaveBeenCalledTimes(1)
-    expect(popupContents.setBackgroundThrottling).toHaveBeenCalledWith(false)
+    expect(popupContents.setBackgroundThrottling).toHaveBeenCalledWith(true)
     expect(popupContents.on.mock.calls.some(([event]) => event === 'dom-ready')).toBe(false)
     // The renderer notice carries only the sanitized origin, never the URL.
     expect(rendererSendMock).toHaveBeenCalledWith('browser:popup', {
@@ -613,6 +613,7 @@ describe('browserManager', () => {
       worktreeId: 'remote-worktree',
       webContentsId: offscreenGuest.id
     })
+    expect(offscreenGuest.setBackgroundThrottling).toHaveBeenCalledWith(false)
     const didFailLoad = offscreenGuest.on.mock.calls.find(
       ([event]) => event === 'did-fail-load'
     )?.[1] as (
@@ -763,11 +764,15 @@ describe('browserManager', () => {
     expect(acquireScript).toContain('bridge.acquire("page-automation")')
     expect(acquireScript).not.toContain('setActiveBrowserTab')
     expect(acquireScript).not.toContain('setActiveTabType')
+    expect(guestSetBackgroundThrottlingMock.mock.calls).toEqual([[true], [false]])
 
+    restore()
     restore()
 
     const releaseScript = rendererExecuteJavaScriptMock.mock.calls[1]?.[0]
     expect(releaseScript).toContain('bridge.release("lease-1")')
+    expect(rendererExecuteJavaScriptMock).toHaveBeenCalledTimes(2)
+    expect(guestSetBackgroundThrottlingMock.mock.calls).toEqual([[true], [false], [true]])
   })
 
   it('returns a no-op automation visibility restore when renderer acquire hangs', async () => {
@@ -1349,7 +1354,7 @@ describe('browserManager', () => {
 
     didCreateWindowHandler?.({ webContents: childGuest })
 
-    expect(childSetBackgroundThrottlingMock).toHaveBeenCalledWith(false)
+    expect(childSetBackgroundThrottlingMock).toHaveBeenCalledWith(true)
     expect(childSetWindowOpenHandlerMock).toHaveBeenCalledTimes(1)
     expect(childOnMock.mock.calls.filter(([event]) => event === 'did-create-window')).toHaveLength(
       1

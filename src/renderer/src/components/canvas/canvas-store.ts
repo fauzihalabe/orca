@@ -2,7 +2,7 @@ import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 import { useMemo } from 'react'
 import type { Edge, Node, Viewport } from '@xyflow/react'
-import { closeCanvasAgentMirror } from './nodes/canvas-agent-session'
+import { closeCanvasTerminalMirror } from './nodes/canvas-agent-session'
 import { closeCanvasBrowserMirror } from './nodes/canvas-browser-session'
 
 // Crew canvas state — one graph PER CANVAS TAB (keyed by tabId, so each worktree
@@ -45,9 +45,23 @@ type CrewCanvasState = {
 }
 
 let removeCanvasFromMain: ((tabId: string) => void) | null = null
+let syncCanvasToMain: ((tabId: string, graph: CrewCanvasGraph) => void) | null = null
 
 export function registerCrewCanvasMainRemoval(handler: (tabId: string) => void): void {
   removeCanvasFromMain = handler
+}
+
+export function registerCrewCanvasMainSync(
+  handler: (tabId: string, graph: CrewCanvasGraph) => void
+): void {
+  syncCanvasToMain = handler
+}
+
+function publishGraphChange(tabId: string): void {
+  const graph = useCrewCanvas.getState().canvases[tabId]
+  if (graph) {
+    syncCanvasToMain?.(tabId, graph)
+  }
 }
 
 function patchGraph(
@@ -59,11 +73,11 @@ function patchGraph(
   return { ...canvases, [tabId]: { ...current, ...patch } }
 }
 
-function closeRemovedAgentMirrors(previous: CrewCanvasNode[], next: CrewCanvasNode[]): void {
+function closeRemovedNodeMirrors(previous: CrewCanvasNode[], next: CrewCanvasNode[]): void {
   const nextIds = new Set(next.map((node) => node.id))
   for (const node of previous) {
-    if (node.data.kind === 'agent' && !nextIds.has(node.id)) {
-      closeCanvasAgentMirror(node.data)
+    if ((node.data.kind === 'agent' || node.data.kind === 'terminal') && !nextIds.has(node.id)) {
+      closeCanvasTerminalMirror(node.data)
     }
     if (node.data.kind === 'browser' && !nextIds.has(node.id)) {
       closeCanvasBrowserMirror(node.data)
@@ -77,20 +91,23 @@ export const useCrewCanvas = create<CrewCanvasState>()(
       canvases: {},
       setGraph: (tabId, nodes, edges) => {
         const previous = useCrewCanvas.getState().canvases[tabId]?.nodes ?? []
-        closeRemovedAgentMirrors(previous, nodes)
+        closeRemovedNodeMirrors(previous, nodes)
         set((s) => ({ canvases: patchGraph(s.canvases, tabId, { nodes, edges }) }))
+        publishGraphChange(tabId)
       },
-      addNode: (tabId, node) =>
+      addNode: (tabId, node) => {
         set((s) => {
           const current = s.canvases[tabId] ?? EMPTY_GRAPH
           return {
             canvases: patchGraph(s.canvases, tabId, { nodes: [...current.nodes, node] })
           }
-        }),
+        })
+        publishGraphChange(tabId)
+      },
       removeElements: (tabId, nodeIds, edgeIds) => {
         const current = useCrewCanvas.getState().canvases[tabId] ?? EMPTY_GRAPH
         const nextNodes = current.nodes.filter((n) => !nodeIds.includes(n.id))
-        closeRemovedAgentMirrors(current.nodes, nextNodes)
+        closeRemovedNodeMirrors(current.nodes, nextNodes)
         set((s) => ({
           canvases: patchGraph(s.canvases, tabId, {
             nodes: nextNodes,
@@ -102,8 +119,9 @@ export const useCrewCanvas = create<CrewCanvasState>()(
             )
           })
         }))
+        publishGraphChange(tabId)
       },
-      updateNodeData: (tabId, nodeId, patch) =>
+      updateNodeData: (tabId, nodeId, patch) => {
         set((s) => {
           const current = s.canvases[tabId] ?? EMPTY_GRAPH
           return {
@@ -113,8 +131,10 @@ export const useCrewCanvas = create<CrewCanvasState>()(
               )
             })
           }
-        }),
-      resizeNode: (tabId, nodeId, size) =>
+        })
+        publishGraphChange(tabId)
+      },
+      resizeNode: (tabId, nodeId, size) => {
         set((s) => {
           const current = s.canvases[tabId] ?? EMPTY_GRAPH
           return {
@@ -122,11 +142,17 @@ export const useCrewCanvas = create<CrewCanvasState>()(
               nodes: current.nodes.map((n) => (n.id === nodeId ? { ...n, ...size } : n))
             })
           }
-        }),
-      setEdgeStyle: (tabId, edgeStyle) =>
-        set((s) => ({ canvases: patchGraph(s.canvases, tabId, { edgeStyle }) })),
-      setViewport: (tabId, viewport) =>
-        set((s) => ({ canvases: patchGraph(s.canvases, tabId, { viewport }) })),
+        })
+        publishGraphChange(tabId)
+      },
+      setEdgeStyle: (tabId, edgeStyle) => {
+        set((s) => ({ canvases: patchGraph(s.canvases, tabId, { edgeStyle }) }))
+        publishGraphChange(tabId)
+      },
+      setViewport: (tabId, viewport) => {
+        set((s) => ({ canvases: patchGraph(s.canvases, tabId, { viewport }) }))
+        publishGraphChange(tabId)
+      },
       // Why: closing the canvas tab drops its persisted graph and retires the
       // native Orca mirror tabs. The Canvas xterm is only a viewport; native
       // tab retirement owns PTY teardown.
@@ -136,8 +162,8 @@ export const useCrewCanvas = create<CrewCanvasState>()(
           return
         }
         for (const node of current.nodes) {
-          if (node.data.kind === 'agent') {
-            closeCanvasAgentMirror(node.data)
+          if (node.data.kind === 'agent' || node.data.kind === 'terminal') {
+            closeCanvasTerminalMirror(node.data)
           }
           if (node.data.kind === 'browser') {
             closeCanvasBrowserMirror(node.data)

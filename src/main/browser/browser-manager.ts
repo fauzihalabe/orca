@@ -242,6 +242,7 @@ export class BrowserManager {
   private readonly worktreeIdByTabId = new Map<string, string>()
   private readonly policyAttachedGuestIds = new Set<number>()
   private readonly offscreenGuestIds = new Set<number>()
+  private readonly automationThrottleLeaseCountByGuestId = new Map<number, number>()
   private readonly policyCleanupByGuestId = new Map<number, () => void>()
   private readonly clickedLinkFrameNameByGuestId = new Map<number, string>()
   private readonly loadErrorsByGuestId = new Map<number, BrowserLoadError>()
@@ -619,8 +620,46 @@ export class BrowserManager {
       return createNoopRestoreForTimedOutAutomationAcquire(renderer, acquirePromise, timedOut)
     }
 
+    const guest = webContents.fromId(guestWebContentsId)
+    const releaseThrottleLease =
+      guest && !guest.isDestroyed() ? this.acquireAutomationThrottleLease(guest) : () => {}
+    let restored = false
+
     return () => {
+      if (restored) {
+        return
+      }
+      restored = true
       releaseAutomationVisibilityToken(renderer, token)
+      releaseThrottleLease()
+    }
+  }
+
+  private acquireAutomationThrottleLease(guest: Electron.WebContents): () => void {
+    const guestId = guest.id
+    const leaseCount = this.automationThrottleLeaseCountByGuestId.get(guestId) ?? 0
+    this.automationThrottleLeaseCountByGuestId.set(guestId, leaseCount + 1)
+    if (leaseCount === 0) {
+      guest.setBackgroundThrottling(false)
+    }
+    let released = false
+    return () => {
+      if (released) {
+        return
+      }
+      released = true
+      const nextLeaseCount = Math.max(
+        0,
+        (this.automationThrottleLeaseCountByGuestId.get(guestId) ?? 1) - 1
+      )
+      if (nextLeaseCount > 0) {
+        this.automationThrottleLeaseCountByGuestId.set(guestId, nextLeaseCount)
+        return
+      }
+      this.automationThrottleLeaseCountByGuestId.delete(guestId)
+      if (!guest.isDestroyed()) {
+        guest.setBackgroundThrottling(true)
+      }
     }
   }
 
@@ -646,8 +685,7 @@ export class BrowserManager {
 
     // Why: bot detectors probe APIs that differ in Electron webviews; inject overrides each load so manual browsing passes.
     const disposeAntiDetection = this.injectAntiDetection(guest)
-    // Why: disable throttling so background screenshots still get frames; else the compositor stalls and capture returns empty.
-    guest.setBackgroundThrottling(false)
+    guest.setBackgroundThrottling(!this.offscreenGuestIds.has(guest.id))
     const installClickedLinkRouting = (): void => {
       if (!clickedLinkRoutingActive || !clickedLinkFrameName || guest.isDestroyed()) {
         return
@@ -1106,6 +1144,7 @@ export class BrowserManager {
       this.policyCleanupByGuestId.delete(guestWebContentsId)
     }
     this.policyAttachedGuestIds.delete(guestWebContentsId)
+    this.automationThrottleLeaseCountByGuestId.delete(guestWebContentsId)
     this.clickedLinkFrameNameByGuestId.delete(guestWebContentsId)
     this.offscreenGuestIds.delete(guestWebContentsId)
     this.popupOwnerContextByGuestId.delete(guestWebContentsId)
@@ -1301,6 +1340,7 @@ export class BrowserManager {
     }
     this.policyAttachedGuestIds.clear()
     this.offscreenGuestIds.clear()
+    this.automationThrottleLeaseCountByGuestId.clear()
     // Why: unregisterGuest skips guests that were policy-attached but never registered; invoke their cleanup closures here.
     for (const cleanup of this.policyCleanupByGuestId.values()) {
       cleanup()

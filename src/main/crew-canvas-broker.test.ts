@@ -62,7 +62,7 @@ describe('CrewCanvasBroker', () => {
     })
   }
 
-  it('persists a graph, exposes only direct capabilities, and rejects stale writes', () => {
+  it('persists a graph, exposes only direct capabilities, and rejects stale writes', async () => {
     const broker = createBroker()
     const graph = {
       nodes: [
@@ -98,7 +98,7 @@ describe('CrewCanvasBroker', () => {
     expect(persistedAgent).not.toHaveProperty('measured')
     expect(broker.getState().tabs['tab-1']!.graph.edges[0]).not.toHaveProperty('selected')
     expect(broker.getState().tabs['tab-1']!.graph.edges[0]).not.toHaveProperty('data.newborn')
-    expect(
+    await expect(
       broker.handle({ requestId: '1', from: 'agent-1', tool: 'capabilities' })
     ).resolves.toEqual(
       JSON.stringify({
@@ -109,6 +109,26 @@ describe('CrewCanvasBroker', () => {
             requiredForMultiStepWork: true,
             minimumActions: 2,
             workflow: ['todo.spawn-if-missing', 'todo.list', 'todo.add-once', 'todo.toggle-on-done']
+          },
+          terminal: {
+            version: 3,
+            supersedesLaunchPrompt: true,
+            agentToolsEnabled: false,
+            execution: 'use-agent-native-terminal-tool-only',
+            canvasTerminals: 'manual-user-resources-only',
+            agentNodeSurface: 'native-pty-visual-mirror'
+          },
+          browser: {
+            version: 2,
+            engine: 'native-orca-browser',
+            useFor: 'visible-authenticated-ui',
+            codeAndApi: 'use-agent-native-terminal',
+            connectedPageOnly: true,
+            spawn: 'reuse-connected-node',
+            navigate: 'reuse-connected-page',
+            screenshot: 'mcp-image-content',
+            snapshotDefaultBytes: 24_576,
+            snapshotMaxBytes: 131_072
           }
         },
         connections: [
@@ -154,24 +174,50 @@ describe('CrewCanvasBroker', () => {
     ).resolves.toBe('new')
   })
 
-  it('does not forward a terminal call unless the edge authorizes it', async () => {
+  it('rejects every Canvas terminal tool even when an old session still calls it', async () => {
     const forward = vi.fn(async () => 'terminal output')
     const broker = createBroker(forward)
     const graph = {
-      nodes: [agent('agent-1'), agent('agent-2'), terminal('terminal-1')],
-      edges: [{ id: 'edge-1', source: 'agent-1', target: 'agent-2' }]
+      nodes: [agent('agent-1'), terminal('terminal-1')],
+      edges: [{ id: 'edge-1', source: 'agent-1', target: 'terminal-1' }]
     }
     broker.syncTab({ tabId: 'tab-1', graph, baseRevision: 0 })
 
-    await expect(
-      broker.handle({
-        requestId: '4',
-        from: 'agent-1',
-        tool: 'terminal.run',
-        args: { nodeId: 'terminal-1', command: 'pwd' }
-      })
-    ).resolves.toContain('não é um terminal conectado')
+    for (const tool of ['terminal.spawn', 'terminal.run', 'terminal.read', 'terminal.send']) {
+      await expect(
+        broker.handle({
+          requestId: tool,
+          from: 'agent-1',
+          tool,
+          args: { nodeId: 'terminal-1', command: 'pwd' }
+        })
+      ).resolves.toContain('manual user resources')
+    }
     expect(forward).not.toHaveBeenCalled()
+  })
+
+  it('keeps the renderer-only browser reuse identity out of agent spawn requests', async () => {
+    const forward = vi.fn(async () => 'spawned')
+    const broker = createBroker(forward)
+    broker.syncTab({
+      tabId: 'tab-1',
+      graph: { nodes: [agent('agent-1')], edges: [] },
+      baseRevision: 0
+    })
+
+    await broker.handle({
+      requestId: 'browser-spawn',
+      from: 'agent-1',
+      tool: 'browser.spawn',
+      args: { url: 'https://example.com', nativeReuseNodeId: 'browser-other-agent' }
+    })
+
+    expect(forward).toHaveBeenCalledWith({
+      requestId: 'browser-spawn',
+      from: 'agent-1',
+      tool: 'browser.spawn',
+      args: { url: 'https://example.com' }
+    })
   })
 
   it('never forwards admitted agent-to-agent asks to the renderer', async () => {
@@ -264,11 +310,12 @@ describe('CrewCanvasBroker', () => {
     ).resolves.toContain('"label":"reviewer"')
   })
 
-  it('routes connected browser actions through the native runtime and worktree', async () => {
+  it('routes connected browser actions through the native runtime and blocks extra tabs', async () => {
     const browserGoto = vi.fn().mockResolvedValue({ url: 'https://example.com', title: 'Example' })
     const browserTabCreate = vi.fn().mockResolvedValue({ browserPageId: 'new-page' })
     const runtime = {
       getRuntimeId: () => 'test-runtime',
+      browserPageReady: vi.fn().mockReturnValue(true),
       browserGoto,
       browserTabCreate
     } as unknown as OrcaRuntimeService
@@ -291,17 +338,168 @@ describe('CrewCanvasBroker', () => {
       url: 'https://example.com'
     })
 
+    await expect(
+      broker.handle({
+        requestId: '7',
+        from: 'agent-1',
+        tool: 'browser.tabCreate',
+        args: { url: 'https://other.example', activate: false }
+      })
+    ).resolves.toContain('browser.navigate')
+    expect(browserTabCreate).not.toHaveBeenCalled()
+  })
+
+  it('normalizes Canvas browser arguments before calling the native engine', async () => {
+    const browserFill = vi.fn().mockResolvedValue({ filled: 'e1' })
+    const browserType = vi.fn().mockResolvedValue({ typed: true })
+    const browserEval = vi.fn().mockResolvedValue({ result: 'Example', origin: 'about:blank' })
+    const browserWait = vi.fn().mockResolvedValue({ waited: true })
+    const browserHover = vi.fn().mockResolvedValue({ hovered: 'e2' })
+    const runtime = {
+      getRuntimeId: () => 'test-runtime',
+      browserPageReady: vi.fn().mockReturnValue(true),
+      browserFill,
+      browserType,
+      browserEval,
+      browserWait,
+      browserHover
+    } as unknown as OrcaRuntimeService
+    const broker = createBroker(undefined, runtime)
+    broker.syncTab({
+      tabId: 'tab-1',
+      worktreeId: 'wt-1',
+      graph: {
+        nodes: [agent('agent-1'), browser('browser-1')],
+        edges: [{ id: 'edge-1', source: 'agent-1', target: 'browser-1' }]
+      },
+      baseRevision: 0
+    })
+
     await broker.handle({
-      requestId: '7',
+      requestId: 'fill',
       from: 'agent-1',
-      tool: 'browser.tabCreate',
-      args: { url: 'https://other.example', activate: false }
+      tool: 'browser.fill',
+      args: { ref: 'e1', text: 'user@example.com' }
     })
-    expect(browserTabCreate).toHaveBeenCalledWith({
-      worktree: 'wt-1',
-      url: 'https://other.example',
-      activate: false
+    await broker.handle({
+      requestId: 'type',
+      from: 'agent-1',
+      tool: 'browser.type',
+      args: { text: 'hello' }
     })
+    await broker.handle({
+      requestId: 'eval',
+      from: 'agent-1',
+      tool: 'browser.eval',
+      args: { js: '() => document.title' }
+    })
+    await broker.handle({
+      requestId: 'wait',
+      from: 'agent-1',
+      tool: 'browser.wait',
+      args: { text: 'Ready', timeoutMs: 2_500 }
+    })
+    await broker.handle({
+      requestId: 'hover',
+      from: 'agent-1',
+      tool: 'browser.hover',
+      args: { ref: 'e2' }
+    })
+    await expect(
+      broker.handle({ requestId: 'invalid-wait', from: 'agent-1', tool: 'browser.wait' })
+    ).resolves.toContain('exige selector')
+
+    const target = { page: 'native-browser-1', worktree: 'wt-1' }
+    expect(browserFill).toHaveBeenCalledWith({
+      ...target,
+      element: 'e1',
+      value: 'user@example.com'
+    })
+    expect(browserType).toHaveBeenCalledWith({ ...target, input: 'hello' })
+    expect(browserEval).toHaveBeenCalledWith({
+      ...target,
+      expression: '(() => document.title)()'
+    })
+    expect(browserWait).toHaveBeenCalledWith({ ...target, text: 'Ready', timeout: 2_500 })
+    expect(browserWait).toHaveBeenCalledTimes(1)
+    expect(browserHover).toHaveBeenCalledWith({ ...target, element: 'e2' })
+  })
+
+  it('recovers the connected browser identity instead of spawning a duplicate node', async () => {
+    const forward = vi.fn(async () =>
+      JSON.stringify({
+        nodeId: 'browser-1',
+        browserPageId: 'native-browser-1',
+        reused: true,
+        ready: true
+      })
+    )
+    const browserPageReady = vi.fn().mockReturnValueOnce(false).mockReturnValue(true)
+    const browserSnapshot = vi.fn().mockResolvedValue({ snapshot: 'ready' })
+    const runtime = {
+      getRuntimeId: () => 'test-runtime',
+      browserPageReady,
+      browserSnapshot
+    } as unknown as OrcaRuntimeService
+    const broker = createBroker(forward, runtime)
+    broker.syncTab({
+      tabId: 'tab-1',
+      worktreeId: 'wt-1',
+      graph: {
+        nodes: [agent('agent-1'), browser('browser-1')],
+        edges: [{ id: 'edge-1', source: 'agent-1', target: 'browser-1' }]
+      },
+      baseRevision: 0
+    })
+
+    await expect(
+      broker.handle({ requestId: 'browser-recovery', from: 'agent-1', tool: 'browser.snapshot' })
+    ).resolves.toContain('ready')
+    expect(forward).toHaveBeenCalledWith({
+      requestId: 'browser-recovery',
+      from: 'agent-1',
+      tool: 'browser.spawn',
+      args: { nativeReuseNodeId: 'browser-1' }
+    })
+    expect(browserPageReady).toHaveBeenCalledTimes(2)
+    expect(browserSnapshot).toHaveBeenCalledTimes(1)
+  })
+
+  it('retries once when a registered browser page disappears before the native action', async () => {
+    const forward = vi.fn(async () =>
+      JSON.stringify({
+        nodeId: 'browser-1',
+        browserPageId: 'native-browser-1',
+        reused: true,
+        ready: true
+      })
+    )
+    const browserPageReady = vi.fn().mockReturnValue(true)
+    const browserSnapshot = vi
+      .fn()
+      .mockRejectedValueOnce(new Error('browser_tab_not_found: missing guest'))
+      .mockResolvedValueOnce({ snapshot: 'recovered' })
+    const runtime = {
+      getRuntimeId: () => 'test-runtime',
+      browserPageReady,
+      browserSnapshot
+    } as unknown as OrcaRuntimeService
+    const broker = createBroker(forward, runtime)
+    broker.syncTab({
+      tabId: 'tab-1',
+      worktreeId: 'wt-1',
+      graph: {
+        nodes: [agent('agent-1'), browser('browser-1')],
+        edges: [{ id: 'edge-1', source: 'agent-1', target: 'browser-1' }]
+      },
+      baseRevision: 0
+    })
+
+    await expect(
+      broker.handle({ requestId: 'browser-race', from: 'agent-1', tool: 'browser.snapshot' })
+    ).resolves.toContain('recovered')
+    expect(forward).toHaveBeenCalledTimes(1)
+    expect(browserSnapshot).toHaveBeenCalledTimes(2)
   })
 
   it('starts native capture before reading traffic from a browser-linked network node', async () => {
@@ -321,6 +519,7 @@ describe('CrewCanvasBroker', () => {
     })
     const runtime = {
       getRuntimeId: () => 'test-runtime',
+      browserPageReady: vi.fn().mockReturnValue(true),
       browserCaptureStart,
       browserNetworkLog
     } as unknown as OrcaRuntimeService
@@ -422,14 +621,21 @@ describe('CrewCanvasBroker', () => {
 
     const result = JSON.parse(
       await broker.handle({ requestId: '8', from: 'agent-1', tool: 'capabilities' })
-    ) as { connections: { kind: string; tools: string[] }[] }
+    ) as {
+      policy: { terminal: { agentToolsEnabled: boolean } }
+      connections: { kind: string; tools: string[] }[]
+    }
     const toolsByKind = Object.fromEntries(
       result.connections.map((connection) => [connection.kind, connection.tools])
     )
 
+    expect(
+      broker.getState().tabs['tab-1']?.graph.nodes.find((node) => node.id === 'terminal-1')
+    ).toMatchObject({ data: { kind: 'terminal' } })
     expect(toolsByKind.agent).toEqual(['canvas_ask', 'orchestrate'])
     expect(toolsByKind.browser).toContain('browser.viewport')
-    expect(toolsByKind.terminal).toEqual(['terminal.read', 'terminal.send', 'terminal.run'])
+    expect(result.policy.terminal.agentToolsEnabled).toBe(false)
+    expect(toolsByKind).not.toHaveProperty('terminal')
     expect(toolsByKind.simulator).toContain('simulator.ax')
     expect(toolsByKind.network).toEqual(['network.read', 'network.snapshot', 'network.list'])
     expect(toolsByKind.note).toEqual(['note.read', 'note.write'])

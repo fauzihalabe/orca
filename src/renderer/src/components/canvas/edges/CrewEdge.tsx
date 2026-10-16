@@ -99,7 +99,7 @@ export function CrewEdgeView({
           strokeWidth: selected ? preset.strokeWidth + 0.6 : preset.strokeWidth,
           strokeDasharray: preset.dasharray,
           strokeLinecap: 'round',
-          animation: `crew-edge-flow ${preset.flowSeconds}s linear infinite`
+          animation: newborn ? `crew-edge-flow ${preset.flowSeconds}s linear infinite` : undefined
         }}
       />
     </g>

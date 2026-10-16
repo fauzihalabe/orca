@@ -655,6 +655,25 @@ describe('tui agent startup plans', () => {
     })
   })
 
+  it('does not append a Codex resume invocation twice to a captured Canvas command', () => {
+    const plan = buildAgentResumeStartupPlan({
+      agent: 'codex',
+      providerSession: { key: 'session_id', id: 's1' },
+      cmdOverrides: {},
+      agentCommand: `codex 'resume' 's1' '-c' 'mcp_servers.orca_canvas.command="orca"'`,
+      agentArgs: `'resume' 's1' '-c' 'mcp_servers.orca_canvas.command="orca"'`,
+      platform: 'linux'
+    })
+
+    expect(plan?.launchCommand).toBe(
+      `codex '-c' 'mcp_servers.orca_canvas.command="orca"' 'resume' 's1'`
+    )
+    expect(plan?.launchCommand.match(/'resume'/g)).toHaveLength(1)
+    expect(plan?.launchConfig.agentCommand).toBe(
+      `codex '-c' 'mcp_servers.orca_canvas.command="orca"'`
+    )
+  })
+
   it('keeps an AI Vault OMP file locator separate from provider identity', () => {
     const plan = buildAgentResumeStartupPlan({
       agent: 'omp',

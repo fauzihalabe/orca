@@ -4,6 +4,7 @@ import { useAppStore } from '@/store'
 import type { Tab, TabGroup } from '../../../../shared/types'
 import CanvasPage from '../canvas/CanvasPage'
 import { tabGroupBodyAnchorName } from '../tab-group/tab-group-body-anchor'
+import { canvasOwnsKeyboard } from './canvas-keyboard-ownership'
 
 const EMPTY_UNIFIED_TABS: readonly Tab[] = []
 const EMPTY_GROUPS: readonly TabGroup[] = []
@@ -24,6 +25,7 @@ type CanvasOverlaySlotProps = {
   tab: Tab
   groupId: string | undefined
   isActive: boolean
+  acceptsKeyboardInput: boolean
   onFocusOwningGroup: ((groupId: string) => void) | undefined
 }
 
@@ -31,6 +33,7 @@ const CanvasOverlaySlot = memo(function CanvasOverlaySlot({
   tab,
   groupId,
   isActive,
+  acceptsKeyboardInput,
   onFocusOwningGroup
 }: CanvasOverlaySlotProps): React.JSX.Element {
   const anchorName = groupId !== undefined ? tabGroupBodyAnchorName(groupId) : undefined
@@ -69,6 +72,7 @@ const CanvasOverlaySlot = memo(function CanvasOverlaySlot({
         worktreeId={tab.worktreeId}
         worktreePath={worktreePath}
         isActive={isActive}
+        acceptsKeyboardInput={acceptsKeyboardInput}
       />
     </div>
   )
@@ -83,10 +87,11 @@ const CanvasPaneOverlayLayer = memo(function CanvasPaneOverlayLayer({
   worktreeId: string
   isWorktreeActive: boolean
 }): React.JSX.Element {
-  const { unifiedTabs, groups } = useAppStore(
+  const { unifiedTabs, groups, activeGroupId } = useAppStore(
     useShallow((state) => ({
       unifiedTabs: state.unifiedTabsByWorktree[worktreeId] ?? EMPTY_UNIFIED_TABS,
-      groups: state.groupsByWorktree[worktreeId] ?? EMPTY_GROUPS
+      groups: state.groupsByWorktree[worktreeId] ?? EMPTY_GROUPS,
+      activeGroupId: state.activeGroupIdByWorktree[worktreeId]
     }))
   )
   const focusGroup = useAppStore((state) => state.focusGroup)
@@ -107,18 +112,25 @@ const CanvasPaneOverlayLayer = memo(function CanvasPaneOverlayLayer({
     () => unifiedTabs.filter((t) => t.contentType === 'canvas'),
     [unifiedTabs]
   )
+  const keyboardGroupId = activeGroupId ?? groups[0]?.id
 
   return (
     <>
       {canvasTabs.map((tab) => {
         const isActiveInGroup = groupActiveTabById[tab.groupId] === tab.id
         const isActive = Boolean(isWorktreeActive && isActiveInGroup)
+        const acceptsKeyboardInput = canvasOwnsKeyboard({
+          visible: isActive,
+          groupId: tab.groupId,
+          activeGroupId: keyboardGroupId
+        })
         return (
           <CanvasOverlaySlot
             key={tab.id}
             tab={tab}
             groupId={tab.groupId}
             isActive={isActive}
+            acceptsKeyboardInput={acceptsKeyboardInput}
             onFocusOwningGroup={focusOwningGroup}
           />
         )

@@ -1,5 +1,5 @@
 import { memo, useLayoutEffect, useRef } from 'react'
-import { Handle, NodeResizer, Position, type NodeProps } from '@xyflow/react'
+import { Handle, NodeResizer, Position, useStore, type NodeProps } from '@xyflow/react'
 import { Globe } from 'lucide-react'
 import { translate } from '@/i18n/i18n'
 import BrowserPane from '@/components/browser-pane/BrowserPane'
@@ -19,6 +19,7 @@ import {
   canvasBrowserWorkspaceId,
   waitForNativeBrowserSessionHydration
 } from './canvas-browser-session'
+import { canvasNodeIntersectsViewport } from './canvas-node-viewport-visibility'
 
 function ensureScheme(raw: string): string {
   const trimmed = raw.trim()
@@ -44,6 +45,8 @@ export const BrowserNode = memo(function BrowserNode({ id, data, selected }: Nod
     url?: string
     browserWorkspaceId?: string
     browserPageId?: string
+    browserSessionProfileId?: string | null
+    browserSessionPartition?: string | null
     browserDesktopSize?: { width?: number; height?: number }
     browserAppliedViewportPresetId?: string | null
   }
@@ -54,6 +57,23 @@ export const BrowserNode = memo(function BrowserNode({ id, data, selected }: Nod
   const stableWorkspaceId = d.browserWorkspaceId ?? canvasBrowserWorkspaceId(id)
   const stablePageId = d.browserPageId ?? canvasBrowserPageId(id)
   const slotRef = useRef<HTMLDivElement | null>(null)
+  const intersectsViewport = useStore((state) => {
+    const node = state.nodeLookup.get(id)
+    if (!node) {
+      return true
+    }
+    return canvasNodeIntersectsViewport({
+      node: {
+        x: node.internals.positionAbsolute.x,
+        y: node.internals.positionAbsolute.y,
+        width: node.measured.width ?? node.width ?? 0,
+        height: node.measured.height ?? node.height ?? 0
+      },
+      viewport: { width: state.width, height: state.height },
+      transform: state.transform
+    })
+  })
+  const browserActive = active && intersectsViewport
 
   const browserWorkspace = useAppStore((state) =>
     Object.values(state.browserTabsByWorktree)
@@ -99,12 +119,20 @@ export const BrowserNode = memo(function BrowserNode({ id, data, selected }: Nod
           id: stableWorkspaceId,
           pageId: stablePageId,
           activate: false,
-          title: translate('auto.components.canvas.BrowserNode.title', 'Canvas Browser')
+          title: translate('auto.components.canvas.BrowserNode.title', 'Canvas Browser'),
+          ...(d.browserSessionProfileId !== undefined
+            ? { sessionProfileId: d.browserSessionProfileId }
+            : {}),
+          ...(d.browserSessionPartition !== undefined
+            ? { sessionPartition: d.browserSessionPartition }
+            : {})
         })
       const pageId = workspace.activePageId ?? workspace.pageIds?.[0] ?? stablePageId
       const patch: Record<string, unknown> = {
         browserWorkspaceId: workspace.id,
-        browserPageId: pageId
+        browserPageId: pageId,
+        browserSessionProfileId: workspace.sessionProfileId ?? null,
+        browserSessionPartition: workspace.sessionPartition ?? null
       }
       if (d.url !== workspace.url && workspace.url !== 'about:blank') {
         patch.url = workspace.url
@@ -117,6 +145,8 @@ export const BrowserNode = memo(function BrowserNode({ id, data, selected }: Nod
     }
   }, [
     d.browserPageId,
+    d.browserSessionPartition,
+    d.browserSessionProfileId,
     d.browserWorkspaceId,
     d.url,
     id,
@@ -220,7 +250,7 @@ export const BrowserNode = memo(function BrowserNode({ id, data, selected }: Nod
     return () => unregisterBrowserOverlaySlotViewport(browserWorkspaceIdForPane, root)
   }, [active, browserWorkspaceIdForPane])
 
-  const findShortcutScope = active ? 'focused' : 'inactive'
+  const findShortcutScope = browserActive ? 'focused' : 'inactive'
   // The normal Orca browser overlay owns this same native workspace whenever
   // the Canvas tab is not active. Rendering another BrowserPane here would
   // reparent the same Chromium guest and make controls/viewport disappear.
@@ -228,7 +258,7 @@ export const BrowserNode = memo(function BrowserNode({ id, data, selected }: Nod
     browserWorkspaceForPane && active ? (
       <BrowserPane
         browserTab={browserWorkspaceForPane}
-        isActive={active}
+        isActive={browserActive}
         findShortcutScope={findShortcutScope}
         canvasSurface
       />

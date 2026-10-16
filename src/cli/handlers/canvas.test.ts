@@ -46,9 +46,9 @@ describe('Canvas CLI native runtime', () => {
       context(
         client,
         new Map([
-          ['tool', 'terminal.run'],
-          ['node', 'terminal-node-2'],
-          ['args', '{"command":"pwd"}']
+          ['tool', 'note.write'],
+          ['node', 'note-node-2'],
+          ['args', '{"text":"review"}']
         ])
       )
     )
@@ -57,11 +57,29 @@ describe('Canvas CLI native runtime', () => {
       'canvas.invoke',
       {
         from: 'agent-node-1',
-        tool: 'terminal.run',
-        args: { command: 'pwd', nodeId: 'terminal-node-2' }
+        tool: 'note.write',
+        args: { text: 'review', nodeId: 'note-node-2' }
       },
       { timeoutMs: 180_000 }
     )
+  })
+
+  it('rejects Canvas terminal tools before calling the runtime', async () => {
+    vi.stubEnv('ORCA_CREW_AGENT_ID', 'agent-node-1')
+    const client = nativeClient()
+
+    await expect(
+      CANVAS_HANDLERS['canvas call']!(
+        context(
+          client,
+          new Map([
+            ['tool', 'terminal.run'],
+            ['args', '{"command":"pwd"}']
+          ])
+        )
+      )
+    ).rejects.toMatchObject({ code: 'invalid_argument' })
+    expect(client.call).not.toHaveBeenCalled()
   })
 
   it('ignores obsolete HTTP bridge variables from a restored native agent', async () => {

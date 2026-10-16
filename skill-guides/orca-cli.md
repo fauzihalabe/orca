@@ -64,8 +64,6 @@ kind or label:
 
 ```text
 ORCA canvas call --tool note.read --node <node-id> --json
-ORCA canvas call --tool terminal.send --node <node-id> --args '{"text":"pwd"}' --json
-ORCA canvas call --tool terminal.read --node <node-id> --args '{"cursor":0}' --json
 ORCA canvas call --tool browser.read --node <node-id> --json
 ORCA canvas call --tool simulator.ax --node <node-id> --json
 ORCA canvas call --tool network.read --node <node-id> --json
@@ -86,10 +84,12 @@ ORCA click --page canvas-<browser-node-id> --element <ref> --json
 The Canvas aliases `browser.*`, `network.*`, and `simulator.*` dispatch through those
 same native Orca runtimes in the main process, even when the Canvas view is hidden. A
 network node must also be connected to the browser it observes; native capture starts
-automatically. Terminal nodes use stable Orca terminal handles and cursor reads; notes,
-todos, and stopwatch timers are durable main-process Canvas state, persisted atomically
-with a revision fence and guarded by the same edge. Canvas agent-to-agent ask and
-orchestration create native persisted Runs, Tasks, and worker dispatches.
+automatically. Terminal nodes are manual user resources and are never Canvas capabilities
+for agents. An agent runs commands only through its own native terminal tool, while its
+AgentNode mirrors that PTY. Notes, todos, and stopwatch timers are durable main-process
+Canvas state, persisted atomically with a revision fence and guarded by the same edge.
+Canvas agent-to-agent ask and orchestration create native persisted Runs, Tasks, worker
+dispatches.
 
 Canvas node calls are live broker operations, not agent-status hooks. The caller transport
 may be the native CLI or Codex's stdio Canvas MCP, but graph authorization and execution

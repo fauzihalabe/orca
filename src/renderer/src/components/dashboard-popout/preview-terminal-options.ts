@@ -1,45 +1,17 @@
 import type { ITerminalInitOnlyOptions, ITerminalOptions, ITheme } from '@xterm/xterm'
 import type { GlobalSettings } from '../../../../shared/types'
 import type { DashboardCardTerminalInput } from '../../../../shared/dashboard-snapshot'
-import { resolveTerminalFontWeights } from '../../../../shared/terminal-fonts'
-import { normalizeTerminalLineHeight } from '../../../../shared/terminal-line-height-settings'
-import {
-  buildDefaultTerminalOptions,
-  normalizeTerminalFastScrollSensitivity,
-  normalizeTerminalScrollSensitivity,
-  resolveTerminalCursorInactiveStyle
-} from '@/lib/pane-manager/pane-terminal-options'
+import { buildDefaultTerminalOptions } from '@/lib/pane-manager/pane-terminal-options'
 import { buildLocalConptyTerminalOptions } from '@/lib/pane-manager/windows-pty-compatibility'
-import { buildFontFamily } from '@/components/terminal-pane/layout-serialization'
 import { resolveTerminalMinimumContrastRatio } from '@/lib/terminal-contrast-correction'
+import { buildTerminalAppearanceOptions } from '@/components/terminal-pane/terminal-appearance-options'
 
 /** Options a live settings change can write onto an open preview terminal. */
 export function buildPreviewAppearanceOptions(
   settings: GlobalSettings | null,
   macOptionIsMeta: boolean
 ): Partial<ITerminalOptions> {
-  const cursorStyle = settings?.terminalCursorStyle ?? 'block'
-  const fontWeights = resolveTerminalFontWeights(settings?.terminalFontWeight)
-  return {
-    fontSize: settings?.terminalFontSize ?? 14,
-    fontFamily: buildFontFamily(settings?.terminalFontFamily ?? ''),
-    fontWeight: fontWeights.fontWeight,
-    fontWeightBold: fontWeights.fontWeightBold,
-    cursorStyle,
-    cursorInactiveStyle: resolveTerminalCursorInactiveStyle(cursorStyle),
-    cursorBlink: settings?.terminalCursorBlink ?? true,
-    scrollSensitivity: normalizeTerminalScrollSensitivity(settings?.terminalScrollSensitivity),
-    fastScrollSensitivity: normalizeTerminalFastScrollSensitivity(
-      settings?.terminalFastScrollSensitivity
-    ),
-    lineHeight: normalizeTerminalLineHeight(settings?.terminalLineHeight),
-    wordSeparator: settings?.terminalWordSeparator,
-    // Why only 'true': 'left'/'right' are handled by the keydown policy, which needs Option composable at the xterm level.
-    macOptionIsMeta,
-    // Why: xterm renders an alpha background opaque unless transparency is on (matches applyTerminalAppearance).
-    allowTransparency:
-      settings?.terminalBackgroundOpacity !== undefined && settings.terminalBackgroundOpacity < 1
-  }
+  return buildTerminalAppearanceOptions(settings, macOptionIsMeta)
 }
 
 /**

@@ -6,13 +6,18 @@ import type {
   CrewCanvasSyncResult
 } from '../shared/crew-canvas'
 import {
-  crewCanvasNodeLabel,
+  CREW_CANVAS_AGENT_TERMINAL_DISABLED_MESSAGE,
+  isCrewCanvasAgentTerminalTool
+} from '../shared/crew-canvas-agent-terminal-policy'
+import {
   crewCanvasNodeTools,
   crewCanvasText,
   isCrewCanvasRecord,
-  isValidCrewCanvasId,
-  type LocatedCanvasNode
+  isValidCrewCanvasId
 } from './crew-canvas-graph'
+import { callCrewCanvasBrowserWithRecovery } from './crew-canvas-browser-runtime'
+import { crewCanvasCapabilities } from './crew-canvas-capabilities'
+import type { LocatedCanvasNode } from './crew-canvas-graph'
 import { CrewCanvasNativeTools } from './crew-canvas-native-tools'
 import { CrewCanvasOrchestration } from './crew-canvas-orchestration'
 import { CrewCanvasStateStore } from './crew-canvas-state'
@@ -75,7 +80,7 @@ export class CrewCanvasBroker {
       return `erro: agente chamador "${payload.from}" não encontrado no canvas`
     }
     if (tool === 'capabilities') {
-      return JSON.stringify(this.capabilities(caller))
+      return JSON.stringify(crewCanvasCapabilities(this.state, caller))
     }
     if (tool === 'ask') {
       const target = this.state.findAgent(payload.to ?? crewCanvasText(args.to))
@@ -95,17 +100,31 @@ export class CrewCanvasBroker {
     if (tool === 'orchestrate') {
       return this.orchestration.orchestrate(caller, args)
     }
+    if (isCrewCanvasAgentTerminalTool(tool)) {
+      return `erro: ${CREW_CANVAS_AGENT_TERMINAL_DISABLED_MESSAGE}`
+    }
     if (tool.endsWith('.spawn')) {
-      return this.options.forwardToRenderer(payload)
+      const spawnArgs = { ...args }
+      delete spawnArgs.nativeReuseNodeId
+      return this.options.forwardToRenderer({ ...payload, args: spawnArgs })
     }
     if (tool.startsWith('browser.')) {
+      if (tool !== 'browser.read' && !crewCanvasNodeTools('browser').includes(tool)) {
+        return `erro: ${tool} não é permitido pelo browser conectado; use browser.navigate para reutilizar a página existente`
+      }
       const browser = this.state.selectConnected(caller, 'browser', args, 'navegador')
-      return typeof browser === 'string'
-        ? browser
-        : this.native.browserTool(browser.node.id, tool, args)
+      if (typeof browser === 'string') {
+        return browser
+      }
+      return callCrewCanvasBrowserWithRecovery({
+        payload,
+        browser,
+        native: this.native,
+        forwardToRenderer: this.options.forwardToRenderer
+      })
     }
     if (tool.startsWith('network.')) {
-      return this.networkTool(caller, tool, args)
+      return this.networkTool(caller, payload, tool, args)
     }
     if (tool.startsWith('simulator.')) {
       return this.simulatorTool(caller, tool, args)
@@ -122,42 +141,12 @@ export class CrewCanvasBroker {
       const timer = this.state.selectConnected(caller, 'timer', args, 'timer')
       return typeof timer === 'string' ? timer : this.timerTool(timer, tool)
     }
-    if (tool === 'terminal.read' || tool === 'terminal.send' || tool === 'terminal.run') {
-      const terminal = this.state.selectConnected(caller, 'terminal', args, 'terminal')
-      return typeof terminal === 'string'
-        ? terminal
-        : this.native.terminalTool(terminal, tool, args)
-    }
     return `erro: tool desconhecida "${tool}"`
-  }
-
-  private capabilities(caller: LocatedCanvasNode): unknown {
-    return {
-      agent: {
-        id: caller.node.id,
-        label: crewCanvasNodeLabel(caller.node),
-        tabId: caller.tab.tabId
-      },
-      revision: this.state.getState().revision,
-      policy: {
-        todo: {
-          requiredForMultiStepWork: true,
-          minimumActions: 2,
-          workflow: ['todo.spawn-if-missing', 'todo.list', 'todo.add-once', 'todo.toggle-on-done']
-        }
-      },
-      connections: this.state.connected(caller).map(({ node }) => ({
-        id: node.id,
-        kind: crewCanvasText(node.data.kind),
-        label: crewCanvasNodeLabel(node),
-        tools: crewCanvasNodeTools(crewCanvasText(node.data.kind)),
-        page: node.data.kind === 'browser' ? this.state.browserPageId(node.id) : undefined
-      }))
-    }
   }
 
   private async networkTool(
     caller: LocatedCanvasNode,
+    payload: CrewCanvasRuntimeRequest,
     tool: string,
     args: Record<string, unknown>
   ): Promise<string> {
@@ -179,7 +168,12 @@ export class CrewCanvasBroker {
     if (!['network.read', 'network.snapshot', 'network.list'].includes(tool)) {
       return `erro: tool desconhecida ${tool}`
     }
-    return this.native.browserCaptureLog(browser.node.id, 'browser.network', args)
+    return callCrewCanvasBrowserWithRecovery({
+      payload: { ...payload, tool: 'browser.network' },
+      browser,
+      native: this.native,
+      forwardToRenderer: this.options.forwardToRenderer
+    })
   }
 
   private async simulatorTool(
@@ -204,7 +198,7 @@ export class CrewCanvasBroker {
     return this.native.call(
       `emulator.${tool.slice('simulator.'.length)}`,
       params,
-      'erro no simulador nativo'
+      'simulador nativo'
     )
   }
 

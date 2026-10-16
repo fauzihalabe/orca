@@ -8,13 +8,24 @@ import { FLOATING_TERMINAL_WORKTREE_ID } from '../../../../../shared/constants'
 import { getCrewCanvas } from '../canvas-store'
 import { attachCrewTermClipboard, attachCrewTermFileDrop } from './crew-term-clipboard'
 import {
-  closeCanvasAgentMirror,
+  closeCanvasTerminalMirror,
   ensureCanvasAgentMirror,
   type CanvasAgentMirror
 } from './canvas-agent-session'
 import { CREW_SPAWN_ENV_TO_DELETE } from '../crew-spawn-env'
 import { subscribeToPtyData } from '@/components/terminal-pane/pty-data-sidecar-subscriptions'
-import { buildCanvasTerminalTheme, useCanvasColorMode } from '../canvas-theme'
+import {
+  applyCanvasTerminalAppearance,
+  canvasTerminalOptions,
+  useCanvasTerminalAppearance
+} from '../canvas-terminal-appearance'
+import { useCanvasTab } from '../canvas-tab-context'
+import { canMeasureCanvasTerminal, fitCanvasTerminalViewport } from './canvas-terminal-geometry'
+import { useCanvasTerminalRevealFit } from './use-canvas-terminal-reveal-fit'
+import {
+  finishCanvasTerminalReattach,
+  replayCanvasTerminalSnapshot
+} from './canvas-terminal-reattach'
 
 // Plain Canvas terminal — the visible xterm is only a viewport. The native
 // Orca TerminalTab owns the PTY, stable pane identity, persistence and mobile
@@ -40,26 +51,32 @@ export function PtyTerminalView({
 }) {
   const containerRef = useRef<HTMLDivElement>(null)
   const termRef = useRef<Terminal | null>(null)
+  const { active } = useCanvasTab()
+  const activeRef = useRef(active)
+  const resizeViewportRef = useRef<() => void>(() => {})
   const [spawnError, setSpawnError] = useState<string | null>(null)
-  const colorMode = useCanvasColorMode()
+  const settings = useAppStore((state) => state.settings)
+  const terminalAppearance = useCanvasTerminalAppearance()
+  const terminalAppearanceRef = useRef(terminalAppearance)
+  const terminalSettingsRef = useRef(settings)
+  const terminalSettingsReady = settings !== null
+  terminalAppearanceRef.current = terminalAppearance
+  terminalSettingsRef.current = settings
+  activeRef.current = active
+  useCanvasTerminalRevealFit(active, resizeViewportRef)
 
   useEffect(() => {
     const container = containerRef.current
-    if (!container) {
+    const terminalSettings = terminalSettingsRef.current
+    if (!container || !terminalSettings) {
       return
     }
-    const term = new Terminal({
-      fontSize: 11,
-      fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
-      theme: buildCanvasTerminalTheme(),
-      cursorBlink: true,
-      scrollback: 5000,
-      convertEol: true
-    })
+    const term = new Terminal(
+      canvasTerminalOptions(terminalAppearanceRef.current, terminalSettings)
+    )
     const fit = new FitAddon()
     term.loadAddon(fit)
     term.open(container)
-    fit.fit()
     termRef.current = term
 
     let disposed = false
@@ -67,14 +84,29 @@ export function PtyTerminalView({
     let livePtyId: string | null = null
     let mirror: CanvasAgentMirror | null = null
 
+    const fitVisibleTerminal = (): { cols: number; rows: number } | null => {
+      const dimensions = fitCanvasTerminalViewport({
+        active: activeRef.current,
+        container,
+        fitAddon: fit
+      })
+      if (dimensions && livePtyId) {
+        window.api.pty.resize(livePtyId, dimensions.cols, dimensions.rows)
+      }
+      return dimensions
+    }
+    resizeViewportRef.current = () => {
+      fitVisibleTerminal()
+    }
+
     const waitForVisibleSize = () =>
       new Promise<void>((resolve) => {
-        if (container.clientHeight > 0) {
+        if (canMeasureCanvasTerminal(container)) {
           resolve()
           return
         }
         const gate = new ResizeObserver(() => {
-          if (container.clientHeight > 0) {
+          if (canMeasureCanvasTerminal(container)) {
             gate.disconnect()
             resolve()
           }
@@ -90,6 +122,18 @@ export function PtyTerminalView({
         return
       }
       livePtyId = ptyId
+      let replaying = true
+      const queuedLiveChunks: string[] = []
+      removeDataListener = subscribeToPtyData(ptyId, (chunk) => {
+        if (disposed) {
+          return
+        }
+        if (replaying) {
+          queuedLiveChunks.push(chunk)
+          return
+        }
+        term.write(chunk)
+      })
       if (initial?.replay) {
         term.write(initial.replay)
       } else if (initial?.snapshot) {
@@ -100,18 +144,26 @@ export function PtyTerminalView({
         const current = await window.api.pty
           .getMainBufferSnapshot(ptyId, { scrollbackRows: 5000 })
           .catch(() => null)
-        if (!disposed && current?.data) {
-          term.write(current.data)
+        if (!disposed && current) {
+          await replayCanvasTerminalSnapshot(term, current)
         }
       }
       if (disposed) {
         return
       }
-      removeDataListener = subscribeToPtyData(ptyId, (chunk) => {
-        if (!disposed) {
-          term.write(chunk)
-        }
+      replaying = false
+      for (const chunk of queuedLiveChunks) {
+        term.write(chunk)
+      }
+      await finishCanvasTerminalReattach({
+        terminal: term,
+        ptyId,
+        fitViewport: fitVisibleTerminal,
+        shouldContinue: () => !disposed
       })
+      if (disposed) {
+        return
+      }
       term.onData((input) => {
         if (livePtyId) {
           window.api.pty.write(livePtyId, input)
@@ -125,7 +177,7 @@ export function PtyTerminalView({
         if (disposed) {
           return
         }
-        fit.fit()
+        const dimensions = fitVisibleTerminal()
         const nodeData = (getCrewCanvas(tabId).nodes.find((node) => node.id === nodeId)?.data ??
           {}) as Record<string, unknown>
         const nativeWorktreeId = worktreeId ?? FLOATING_TERMINAL_WORKTREE_ID
@@ -134,29 +186,43 @@ export function PtyTerminalView({
           label,
           data: nodeData
         })
-        onSessionReady(mirror)
-        if (mirror.reusedExistingPty && mirror.ptyId) {
-          await attachPty(mirror.ptyId)
+        const readyMirror = mirror
+        onSessionReady(readyMirror)
+        let durableSessionId =
+          typeof nodeData.ptySessionId === 'string' && nodeData.ptySessionId.trim().length > 0
+            ? nodeData.ptySessionId
+            : sessionId
+        const bindPty = (ptyId: string) => {
+          useAppStore.getState().updateTabPtyId(readyMirror.tabId, ptyId)
+          useAppStore
+            .getState()
+            .setTabLayout(readyMirror.tabId, singlePaneLayoutSnapshot(readyMirror.leafId, ptyId))
+          onSessionReady({ ...readyMirror, ptyId }, durableSessionId)
+        }
+        if (readyMirror.reusedExistingPty && readyMirror.ptyId) {
+          await attachPty(readyMirror.ptyId)
+          return
+        }
+        const nativePtyId =
+          typeof nodeData.nativePtyId === 'string' ? nodeData.nativePtyId.trim() : ''
+        if (nativePtyId && (await window.api.pty.hasPty(nativePtyId).catch(() => false))) {
+          bindPty(nativePtyId)
+          await attachPty(nativePtyId)
           return
         }
 
-        const dims = fit.proposeDimensions()
         const spawnOpts = (id: string) => ({
-          cols: dims?.cols ?? 80,
-          rows: dims?.rows ?? 24,
+          cols: dimensions?.cols ?? 80,
+          rows: dimensions?.rows ?? 24,
           command: command || undefined,
           cwd: cwd || undefined,
           worktreeId: nativeWorktreeId,
           envToDelete: CREW_SPAWN_ENV_TO_DELETE,
           sessionId: id,
           initiallyHidden: false,
-          tabId: mirror!.tabId,
-          leafId: mirror!.leafId
+          tabId: readyMirror.tabId,
+          leafId: readyMirror.leafId
         })
-        let durableSessionId =
-          typeof nodeData.ptySessionId === 'string' && nodeData.ptySessionId.trim().length > 0
-            ? nodeData.ptySessionId
-            : sessionId
         let spawned
         try {
           spawned = await window.api.pty.spawn(spawnOpts(durableSessionId))
@@ -171,11 +237,7 @@ export function PtyTerminalView({
         if (disposed) {
           return
         }
-        useAppStore.getState().updateTabPtyId(mirror.tabId, spawned.id)
-        useAppStore
-          .getState()
-          .setTabLayout(mirror.tabId, singlePaneLayoutSnapshot(mirror.leafId, spawned.id))
-        onSessionReady({ ...mirror, ptyId: spawned.id }, durableSessionId)
+        bindPty(spawned.id)
         await attachPty(spawned.id, {
           replay: spawned.replay,
           snapshot: spawned.snapshot,
@@ -184,7 +246,10 @@ export function PtyTerminalView({
       } catch (error) {
         if (!disposed) {
           if (mirror && !mirror.reusedExistingPty && !livePtyId) {
-            closeCanvasAgentMirror(mirror)
+            closeCanvasTerminalMirror({
+              mirrorTabId: mirror.tabId,
+              mirrorWorktreeId: mirror.worktreeId
+            })
           }
           setSpawnError(error instanceof Error ? error.message : String(error))
         }
@@ -195,13 +260,7 @@ export function PtyTerminalView({
     const detachClipboard = attachCrewTermClipboard(container, term, () => livePtyId)
     const detachFileDrop = attachCrewTermFileDrop(container, term, () => livePtyId)
 
-    const observer = new ResizeObserver(() => {
-      fit.fit()
-      const dims = fit.proposeDimensions()
-      if (dims && livePtyId) {
-        window.api.pty.resize(livePtyId, dims.cols, dims.rows)
-      }
-    })
+    const observer = new ResizeObserver(fitVisibleTerminal)
     observer.observe(container)
 
     return () => {
@@ -214,15 +273,26 @@ export function PtyTerminalView({
       // node deletion closes that tab through canvas-store cleanup.
       term.dispose()
       termRef.current = null
+      resizeViewportRef.current = () => {}
     }
-  }, [command, cwd, label, nodeId, onSessionReady, sessionId, tabId, worktreeId])
+  }, [
+    command,
+    cwd,
+    label,
+    nodeId,
+    onSessionReady,
+    sessionId,
+    tabId,
+    terminalSettingsReady,
+    worktreeId
+  ])
 
   useEffect(() => {
     const term = termRef.current
     if (term) {
-      term.options.theme = buildCanvasTerminalTheme()
+      applyCanvasTerminalAppearance(term, terminalAppearance)
     }
-  }, [colorMode])
+  }, [terminalAppearance])
 
   return (
     <div

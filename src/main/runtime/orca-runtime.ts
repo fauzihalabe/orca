@@ -35064,6 +35064,9 @@ export class OrcaRuntimeService {
   browserTabShow: RuntimeBrowserCommands['browserTabShow'] =
     this.browserCommands.browserTabShow.bind(this.browserCommands)
 
+  browserPageReady: RuntimeBrowserCommands['browserPageReady'] =
+    this.browserCommands.browserPageReady.bind(this.browserCommands)
+
   browserTabCurrent: RuntimeBrowserCommands['browserTabCurrent'] =
     this.browserCommands.browserTabCurrent.bind(this.browserCommands)
 

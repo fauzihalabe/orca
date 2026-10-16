@@ -210,7 +210,6 @@ export function crewCanvasNodeTools(kind: string): string[] {
       'browser.download',
       'browser.upload'
     ],
-    terminal: ['terminal.read', 'terminal.send', 'terminal.run'],
     simulator: [
       'simulator.ax',
       'simulator.tap',

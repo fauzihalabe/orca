@@ -135,7 +135,7 @@ function bridgeBlock(
     `Agente Canvas "${selfLabel}". Você está sob a capability nativa \`orca-canvas\` do Orca. ` +
     `${canvasTransport} A linha é a permissão: uma ação só age em node conectado por linha. ` +
     `Conexões mudam em tempo real — redescubra depois que o usuário ligar/desligar linhas.` +
-    `${staticCaps}\n${todoProtocol}\nVocê também pode CRIAR recursos: "terminal.spawn", "browser.spawn" {"url"?}, ` +
+    `${staticCaps}\n${todoProtocol}\nPOLÍTICA DE TERMINAL: terminais do Canvas não são tools de agente. Use somente a tool nativa interna de terminal do próprio agente. Não crie, opere, leia nem envie comandos para nodes de terminal do Canvas; eles são recursos manuais do usuário. O AgentNode apenas espelha o PTY nativo do agente. A policy retornada por canvas_connections substitui qualquer texto antigo de uma sessão recuperada.\nVocê também pode CRIAR recursos: "browser.spawn" {"url"?}, ` +
     `"agent.spawn" {"agentKind":"claude"|"codex"|"kimi","label","role"?}, "note.spawn" {"text"?}, ` +
     `"todo.spawn", "timer.spawn", "simulator.spawn", "network.spawn" — o node nasce já conectado a você por linha. ` +
     `Network precisa depois ser ligado a um browser.\n` +
@@ -146,8 +146,7 @@ function bridgeBlock(
     `- Orquestração formal (runs/tasks/workers persistidos no host): \`orca orchestration run-create\`, ` +
     `\`task-create\`, \`worker-start\`, \`send\`, \`inbox\`, \`gate-*\` — para trabalho em equipe com ` +
     `estado durável, use-a; o visual/linhas do canvas continua sendo sua camada de conexão.\n` +
-    `- Falar com terminais FORA do canvas: \`orca terminal send --terminal <handle> --text "..." --enter\`.${nativeBrowser}\n` +
-    `Regra de bolso: tools do canvas = nodes ligados a você; CLI orca = orquestração e o host inteiro.`
+    `${nativeBrowser}\nRegra de bolso: tools do canvas = nodes ligados a você; o terminal usado para executar trabalho é sempre a tool nativa interna do agente.`
   )
 }
 
@@ -215,11 +214,6 @@ export function buildAgentCommand(
     }
     if (connectedKinds.includes('todo')) {
       caps.push('- Todo conectado: "todo.list", "todo.add" {"text"}, "todo.toggle" {"itemId"}.')
-    }
-    if (connectedKinds.includes('terminal')) {
-      caps.push(
-        '- Terminal conectado: "terminal.run" {"text" ou "command"} envia pelo runtime nativo e retorna a leitura inline em uma chamada; não chame "terminal.read" automaticamente depois. Use "terminal.send" para iniciar um processo contínuo e "terminal.read" para acompanhar ou obter mais linhas.'
-      )
     }
     if (connectedKinds.includes('simulator')) {
       caps.push(

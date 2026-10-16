@@ -159,6 +159,20 @@ describe('RuntimeBrowserCommands browser screencast', () => {
     })
   })
 
+  it('reports Canvas browser readiness from the live native guest registry', async () => {
+    const { RuntimeBrowserCommands } = await import('./orca-runtime-browser')
+    const bridge = {
+      getRegisteredTabs: vi.fn(() => new Map([['page-ready', 101]]))
+    } as unknown as AgentBrowserBridge
+    const commands = new RuntimeBrowserCommands(createHost({ getAgentBrowserBridge: () => bridge }))
+    webContentsFromIdMock.mockReturnValue({ isDestroyed: () => false })
+
+    expect(commands.browserPageReady({ page: 'page-ready' })).toBe(true)
+    expect(commands.browserPageReady({ page: 'page-missing' })).toBe(false)
+    webContentsFromIdMock.mockReturnValue(null)
+    expect(commands.browserPageReady({ page: 'page-ready' })).toBe(false)
+  })
+
   it('waits for explicit worktree browser registration after requesting a hidden mount', async () => {
     const { RuntimeBrowserCommands } = await import('./orca-runtime-browser')
     const send = vi.fn()

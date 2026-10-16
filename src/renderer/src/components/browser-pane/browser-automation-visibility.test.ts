@@ -50,12 +50,16 @@ describe('browser automation visibility leases', () => {
         return animationFrameCallbacks.length
       }
     })
-    const { isBrowserAutomationVisible } = await import('./browser-automation-visibility')
+    const {
+      acquireBrowserAutomationVisibilityAfterPaint,
+      isBrowserAutomationVisible,
+      releaseBrowserAutomationVisibility
+    } = await import('./browser-automation-visibility')
 
     const bridge = window.__orcaBrowserAutomationVisibility
     expect(bridge).toBeTruthy()
 
-    const acquirePromise = bridge?.acquire('page-2')
+    const acquirePromise = acquireBrowserAutomationVisibilityAfterPaint('page-2')
     await Promise.resolve()
 
     expect(isBrowserAutomationVisible('page-2')).toBe(true)
@@ -72,8 +76,9 @@ describe('browser automation visibility leases', () => {
 
     expect(typeof token).toBe('string')
     expect(isBrowserAutomationVisible('page-2')).toBe(true)
-    expect(bridge?.release(token ?? '')).toBe(true)
+    expect(releaseBrowserAutomationVisibility(token ?? '')).toBe(true)
     expect(isBrowserAutomationVisible('page-2')).toBe(false)
+    expect(bridge?.acquire).toBe(acquireBrowserAutomationVisibilityAfterPaint)
   })
 
   it('releases the main-process bridge lease when the paint wait hangs', async () => {

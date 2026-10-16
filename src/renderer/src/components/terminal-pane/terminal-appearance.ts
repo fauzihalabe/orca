@@ -1,4 +1,4 @@
-import type { ITheme } from '@xterm/xterm'
+import type { ITheme, Terminal } from '@xterm/xterm'
 import type { PaneManager } from '@/lib/pane-manager/pane-manager'
 import type { GlobalSettings } from '../../../../shared/types'
 import { resolveTerminalFontWeights } from '../../../../shared/terminal-fonts'
@@ -25,6 +25,7 @@ import type { PtyTransport } from './pty-transport'
 import type { EffectiveMacOptionAsAlt } from '@/lib/keyboard-layout/detect-option-as-alt'
 import { HEX_COLOR_RE } from '../../../../shared/color-validation'
 import type { TerminalViewAttributes } from '../../../../shared/terminal-view-attributes'
+import type { TerminalOscColorQueryReplyColors } from '../../../../shared/terminal-osc-color-reply'
 import { publishTerminalViewAttributes } from './terminal-view-attributes-publisher'
 import { normalizeTerminalLineHeight } from '../../../../shared/terminal-line-height-settings'
 import { maybePushMode2031Flip } from './terminal-mode-2031-replies'
@@ -89,6 +90,22 @@ export function composeActiveTerminalTheme(
   return theme
 }
 
+export function resolveTerminalStartupColorQueryReplies(
+  settings: GlobalSettings | null | undefined,
+  systemPrefersDark: boolean
+): TerminalOscColorQueryReplyColors | null {
+  if (!settings) {
+    return null
+  }
+  const appearance = resolveEffectiveTerminalAppearance(settings, systemPrefersDark)
+  const baseTheme = appearance.theme ?? getBuiltinTheme(appearance.themeName)
+  const theme = composeActiveTerminalTheme(baseTheme, settings)
+  if (!theme?.foreground || !theme.background) {
+    return null
+  }
+  return { foreground: theme.foreground, background: theme.background }
+}
+
 /** Publishes composed terminal appearance at app start so hidden-at-launch PTYs can query OSC 10/11
  *  before any pane mounts (terminal-query-authority.md §Phase 6). Returns whether a publish went out. */
 export function publishTerminalViewAttributesAtAppStart(
@@ -132,6 +149,22 @@ function composedTerminalThemesEqual(a: ITheme | undefined, b: ITheme): boolean 
   return extA.length === extB.length && extA.every((value, i) => value === extB[i])
 }
 
+export function applyTerminalColorAppearance(
+  terminal: Pick<Terminal, 'options'>,
+  theme: ITheme | null,
+  mode: 'dark' | 'light',
+  allowTransparency: boolean
+): void {
+  if (theme && !composedTerminalThemesEqual(terminal.options.theme, theme)) {
+    terminal.options.theme = theme
+  }
+  const minimumContrastRatio = resolveTerminalMinimumContrastRatio(theme?.background, mode)
+  if (terminal.options.minimumContrastRatio !== minimumContrastRatio) {
+    terminal.options.minimumContrastRatio = minimumContrastRatio
+  }
+  terminal.options.allowTransparency = allowTransparency
+}
+
 export function applyTerminalAppearance(
   manager: PaneManager,
   settings: GlobalSettings,
@@ -157,23 +190,12 @@ export function applyTerminalAppearance(
   )
 
   for (const pane of manager.getPanes()) {
-    // Why value-gated: writing options.theme rebuilds the palette, discarding TUI OSC 4/10/11/12 mutations; skip on no-op change.
-    if (theme && !composedTerminalThemesEqual(pane.terminal.options.theme, theme)) {
-      pane.terminal.options.theme = theme
-    }
-    // Gate off the configured theme background; the live OSC-11 background is deliberately preserved by the
-    // theme write above, so a TUI that repaints its background at runtime won't re-gate (known limitation).
-    // Why value-gated: writing minimumContrastRatio clears xterm's contrast cache, so skip on no-op re-applies.
-    const minimumContrastRatio = resolveTerminalMinimumContrastRatio(
-      theme?.background,
-      appearance.mode
-    )
-    if (pane.terminal.options.minimumContrastRatio !== minimumContrastRatio) {
-      pane.terminal.options.minimumContrastRatio = minimumContrastRatio
-    }
-    // Why clear explicitly: allowTransparency has rendering cost and a stale `true` could bleed in from a prior opacity.
-    pane.terminal.options.allowTransparency =
+    applyTerminalColorAppearance(
+      pane.terminal,
+      theme,
+      appearance.mode,
       settings.terminalBackgroundOpacity !== undefined && settings.terminalBackgroundOpacity < 1
+    )
     const cursorStyle = settings.terminalCursorStyle ?? 'block'
     pane.terminal.options.cursorStyle = cursorStyle
     pane.terminal.options.cursorInactiveStyle = resolveTerminalCursorInactiveStyle(cursorStyle)

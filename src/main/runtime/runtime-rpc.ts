@@ -445,6 +445,13 @@ function longPollClassOf(request: RpcRequest): LongPollClass | null {
   if (request.method === 'terminal.wait') {
     return 'wait'
   }
+  if (request.method === 'canvas.invoke') {
+    const params = request.params as { tool?: unknown; args?: Record<string, unknown> } | undefined
+    if (params?.tool === 'ask') {
+      return 'ask'
+    }
+    return params?.tool === 'browser.wait' || params?.tool === 'orchestrate' ? 'wait' : null
+  }
   // Why: orchestration.ask blocks unconditionally (default 600 s) holding the
   // RPC open until a reply lands or the deadline passes, so it needs the same
   // keepalive as check --wait or the 30 s socket idle timer tears it down. It

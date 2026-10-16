@@ -22,7 +22,7 @@ import type { CrewCanvasNode } from './canvas-store'
 import {
   hydrateCrewCanvasFromMain,
   installCrewCanvasMainUpdates,
-  syncCrewCanvasTab
+  registerCrewCanvasTabScope
 } from './canvas-main-sync'
 import {
   CanvasTabProvider,
@@ -45,6 +45,8 @@ import { CreatePalette, type PaletteKind } from './create-palette'
 import { EdgeStyleSwitcher } from './edge-style-switcher'
 import { useRubberBand } from './use-rubber-band'
 import { useCanvasColorMode } from './canvas-theme'
+import { useActiveCanvasDeletion } from './use-active-canvas-deletion'
+import { canvasOwnsKeyboardAtEvent } from './canvas-keyboard-ownership'
 import { useAppStore } from '@/store'
 
 const nodeTypes: NodeTypes = {
@@ -70,27 +72,15 @@ const DEFAULT_SIZES: Record<PaletteKind, { width: number; height: number }> = {
   network: { width: 480, height: 360 }
 }
 
-function isEditableTarget(target: EventTarget | null): boolean {
-  if (!(target instanceof Element)) {
-    return false
-  }
-  return Boolean(
-    target.closest('input, textarea, select, [contenteditable="true"], .xterm, webview')
-  )
-}
-
 function CanvasSurface() {
-  const { tabId, worktreeId, worktreePath, active } = useCanvasTab()
+  const { tabId, worktreeId, worktreePath, acceptsKeyboardInput } = useCanvasTab()
   const defaultTuiAgent = useAppStore((state) => state.settings?.defaultTuiAgent)
-  const graph = useCanvasGraph()
-  const { nodes, edges } = graph
+  const { nodes, edges } = useCanvasGraph()
   const actions = useCanvasActions()
   const readGraph = useCanvasGraphReader()
   const { screenToFlowPosition } = useReactFlow()
   const colorMode = useCanvasColorMode()
-  const activeRef = useRef(active)
   const rootRef = useRef<HTMLDivElement>(null)
-  activeRef.current = active
 
   useEffect(() => {
     const releaseInteractionShield = (): void => {
@@ -126,12 +116,6 @@ function CanvasSurface() {
     void hydrateCrewCanvasFromMain()
   }, [])
 
-  useEffect(() => {
-    // The renderer remains a responsive React Flow cache; the main process
-    // receives every committed graph and fences stale writes by revision.
-    void syncCrewCanvasTab(tabId, worktreeId, graph)
-  }, [graph, tabId, worktreeId])
-
   const onNodesChange = useCallback(
     (changes: NodeChange<CrewCanvasNode>[]) => {
       const g = readGraph()
@@ -151,32 +135,19 @@ function CanvasSurface() {
     [actions]
   )
 
-  // Delete/Backspace removes the selection — handled here because PTY xterms
-  // and webviews hold keyboard focus, so xyflow's own deleteKeyCode never
-  // reaches the pane in real use. Only the VISIBLE canvas answers: hidden
-  // tabs stay mounted and would eat the gesture (and their selections).
-  useEffect(() => {
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key !== 'Delete' && event.key !== 'Backspace') {
-        return
-      }
-      if (!activeRef.current) {
-        return
-      }
-      if (isEditableTarget(event.target)) {
-        return
-      }
-      const g = readGraph()
-      const nodeIds = g.nodes.filter((n) => n.selected).map((n) => n.id)
-      const edgeIds = g.edges.filter((e) => e.selected).map((e) => e.id)
-      if (nodeIds.length > 0 || edgeIds.length > 0) {
-        event.preventDefault()
-        actions.removeElements(nodeIds, edgeIds)
-      }
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [actions, readGraph])
+  const ownsKeyboardAtEvent = useCallback(
+    () =>
+      acceptsKeyboardInput &&
+      canvasOwnsKeyboardAtEvent({ tabId, worktreeId, state: useAppStore.getState() }),
+    [acceptsKeyboardInput, tabId, worktreeId]
+  )
+
+  useActiveCanvasDeletion({
+    enabled: acceptsKeyboardInput,
+    ownsKeyboardAtEvent,
+    readGraph,
+    removeElements: actions.removeElements
+  })
 
   // A connection is a capability, not a drawing: agents may connect to every
   // resource, and a network node may connect to the browser it observes.
@@ -249,7 +220,10 @@ function CanvasSurface() {
       }
       const position = palette.rect ?? screenToFlowPosition({ x: palette.x, y: palette.y })
       const size = palette.rect
-        ? { width: Math.max(180, palette.rect.width), height: Math.max(140, palette.rect.height) }
+        ? {
+            width: Math.max(180, palette.rect.width),
+            height: Math.max(140, palette.rect.height)
+          }
         : DEFAULT_SIZES[kind]
       // Agent/terminal nodes spawn PTYs — pin them to this tab's worktree dir.
       const cwd = kind === 'agent' || kind === 'terminal' ? (worktreePath ?? undefined) : undefined
@@ -267,12 +241,15 @@ function CanvasSurface() {
                   defaultTuiAgent && defaultTuiAgent !== 'blank' ? defaultTuiAgent : 'claude'
               }
             : { kind }),
+          ...(worktreeId && (kind === 'agent' || kind === 'terminal')
+            ? { canvasWorktreeId: worktreeId }
+            : {}),
           ...(cwd ? { cwd } : {})
         }
       })
       setPalette(null)
     },
-    [actions, defaultTuiAgent, palette, screenToFlowPosition, worktreePath]
+    [actions, defaultTuiAgent, palette, screenToFlowPosition, worktreeId, worktreePath]
   )
 
   return (
@@ -285,6 +262,7 @@ function CanvasSurface() {
       <ReactFlow
         nodes={nodes}
         edges={edges}
+        deleteKeyCode={null}
         nodeTypes={nodeTypes}
         onNodesChange={onNodesChange}
         onEdgesChange={onEdgesChange}
@@ -351,19 +329,23 @@ export default function CanvasPage({
   tabId = 'default',
   worktreeId,
   worktreePath,
-  isActive = true
+  isActive = true,
+  acceptsKeyboardInput = isActive
 }: {
   tabId?: string
   worktreeId?: string | null
   worktreePath?: string | null
   isActive?: boolean
+  acceptsKeyboardInput?: boolean
 }) {
+  registerCrewCanvasTabScope(tabId, worktreeId ?? null)
   return (
     <CanvasTabProvider
       tabId={tabId}
       worktreeId={worktreeId}
       worktreePath={worktreePath}
       active={isActive}
+      acceptsKeyboardInput={acceptsKeyboardInput}
     >
       <ReactFlowProvider>
         <CanvasSurface />

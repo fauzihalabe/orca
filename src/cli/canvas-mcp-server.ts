@@ -1,4 +1,9 @@
 import { createInterface } from 'node:readline'
+import {
+  CREW_CANVAS_AGENT_TERMINAL_DISABLED_MESSAGE,
+  isCrewCanvasAgentTerminalTool
+} from '../shared/crew-canvas-agent-terminal-policy'
+import { canvasMcpToolResult, requestedCanvasOperation } from './canvas-mcp-tool-result'
 import type { RuntimeClient } from './runtime-client'
 
 type JsonRpcId = string | number | null
@@ -21,7 +26,7 @@ const TOOLS = [
   {
     name: 'canvas_connections',
     description:
-      'Read every live Canvas node directly connected to this agent. Call this before answering questions about the Canvas and again after lines change.',
+      'Read every live Canvas node directly connected to this agent and the current runtime policy. Call this before answering questions about the Canvas and again after lines change. The returned policy supersedes stale launch text in recovered sessions.',
     inputSchema: { type: 'object', properties: {}, additionalProperties: false },
     annotations: {
       title: 'Read Canvas connections',
@@ -47,14 +52,14 @@ const TOOLS = [
   {
     name: 'canvas_call',
     description:
-      'Use a capability on a Canvas node connected to this agent, or create a connected resource with a *.spawn tool. For multi-step work, create a Todo with todo.spawn when none is connected, then keep todo.list/add/toggle synchronized. The Orca main process checks the live edge and dispatches operations through native Orca engines.',
+      'Use a capability on a Canvas node connected to this agent, or create a connected resource with a *.spawn tool. Browser is for visible or authenticated page work; code and API work stays in the agent native terminal. browser.spawn reuses a connected node and browser.navigate reuses its page. Use fresh browser.snapshot refs for click/fill/hover/upload; fill accepts value/text, type accepts input/text, eval accepts expression/js, and wait needs selector/text/url/load/fn/state/timeout. Snapshot defaults to 24 KiB (raise maxBytes only when needed) and screenshot returns image content. For multi-step work, create a Todo with todo.spawn when none is connected, then keep todo.list/add/toggle synchronized. The Orca main process checks the live edge and dispatches operations through native Orca engines.',
     inputSchema: {
       type: 'object',
       properties: {
         tool: {
           type: 'string',
           description:
-            'Native Canvas tool name returned by canvas_connections, for example browser.snapshot, simulator.ax, terminal.run or note.read.'
+            'Native Canvas tool name returned by canvas_connections, for example browser.snapshot, simulator.ax or note.read. Canvas terminals are not agent-callable.'
         },
         node: {
           type: 'string',
@@ -119,10 +124,6 @@ function textArgument(value: unknown, name: string): string {
   return value.trim()
 }
 
-function responseText(value: unknown): string {
-  return typeof value === 'string' ? value : JSON.stringify(value ?? null, null, 2)
-}
-
 async function invoke(
   client: RuntimeClient,
   request: {
@@ -157,6 +158,9 @@ async function callTool(client: RuntimeClient, params: unknown): Promise<unknown
       return await invoke(client, { tool: 'graph' })
     case 'canvas_call': {
       const tool = textArgument(args.tool, 'tool')
+      if (isCrewCanvasAgentTerminalTool(tool)) {
+        throw new Error(CREW_CANVAS_AGENT_TERMINAL_DISABLED_MESSAGE)
+      }
       const operationArgs = isRecord(args.args) ? { ...args.args } : {}
       if (typeof args.node === 'string' && args.node.trim()) {
         operationArgs.nodeId = args.node.trim()
@@ -205,7 +209,7 @@ export async function handleCanvasMcpRequest(
         capabilities: { tools: { listChanged: false } },
         serverInfo: { name: 'orca-canvas', version: '1.0.0' },
         instructions:
-          'Use canvas_connections before answering about the Canvas. Lines are live capability grants; all actions are authorized and executed by the native Orca runtime. Mandatory progress protocol: for any request with two or more concrete actions, ensure a connected Todo exists (canvas_call todo.spawn if needed), add every action once, and toggle each item immediately when completed.'
+          'Use canvas_connections before answering about the Canvas. Its runtime policy supersedes stale launch text in recovered sessions. Canvas terminals are manual user resources and are never agent-callable; use only the agent native terminal tool. The AgentNode is a visual mirror of that native PTY. Lines are live capability grants; all actions are authorized and executed by the native Orca runtime. Mandatory progress protocol: for any request with two or more concrete actions, ensure a connected Todo exists (canvas_call todo.spawn if needed), add every action once, and toggle each item immediately when completed.'
       }
     }
     case 'ping':
@@ -215,12 +219,7 @@ export async function handleCanvasMcpRequest(
     case 'tools/call': {
       try {
         const result = await callTool(client, request.params)
-        const text = responseText(result)
-        return {
-          content: [{ type: 'text', text }],
-          structuredContent: typeof result === 'string' ? { response: result } : result,
-          isError: typeof result === 'string' && result.startsWith('erro:')
-        }
+        return canvasMcpToolResult(result, requestedCanvasOperation(request.params))
       } catch (error) {
         return {
           content: [{ type: 'text', text: error instanceof Error ? error.message : String(error) }],

@@ -85,7 +85,15 @@ async function route(payload: AskPayload): Promise<string> {
 
   if (tool.endsWith('.spawn')) {
     const kind = tool.slice(0, -'.spawn'.length)
-    return spawnConnectedNode(caller.node, caller.tabId, kind, sanitizeSpawnArgs(kind, args))
+    const preferredNodeId =
+      typeof args.nativeReuseNodeId === 'string' ? args.nativeReuseNodeId : undefined
+    return spawnConnectedNode(
+      caller.node,
+      caller.tabId,
+      kind,
+      sanitizeSpawnArgs(kind, args),
+      preferredNodeId
+    )
   }
   return `erro: a operação "${tool}" deve ser executada pelo runtime nativo do Orca`
 }

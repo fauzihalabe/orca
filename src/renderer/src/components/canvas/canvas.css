@@ -42,25 +42,8 @@
 }
 
 .crew-canvas-browser-pane {
-  --background: var(--crew-canvas-node-surface);
-  --foreground: var(--crew-canvas-node-foreground);
-  --card: var(--crew-canvas-node-surface);
-  --card-foreground: var(--crew-canvas-node-foreground);
-  --popover: var(--crew-canvas-node-surface);
-  --popover-foreground: var(--crew-canvas-node-foreground);
-  --primary: var(--crew-canvas-primary);
-  --primary-foreground: var(--crew-canvas-node-surface);
-  --secondary: var(--crew-canvas-control-background);
-  --secondary-foreground: var(--crew-canvas-node-foreground);
-  --muted: var(--crew-canvas-control-background);
-  --muted-foreground: var(--crew-canvas-node-muted);
-  --accent: var(--crew-canvas-control-background);
-  --accent-foreground: var(--crew-canvas-node-foreground);
-  --border: var(--crew-canvas-node-header-border);
-  --input: var(--crew-canvas-control-border);
-  --ring: var(--crew-canvas-primary);
-  background: var(--background);
-  color: var(--foreground);
+  background: var(--card);
+  color: var(--card-foreground);
 }
 
 .crew-edge__fusion {

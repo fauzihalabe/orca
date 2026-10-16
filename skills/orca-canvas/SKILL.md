@@ -2,7 +2,7 @@
 name: orca-canvas
 description: >-
   Use the native Orca Canvas capability graph from an agent terminal: discover
-  connected nodes, call browser, simulator, terminal, notes, todos, timers,
+  connected nodes, call browser, simulator, notes, todos, timers,
   network observers, and coordinate other Canvas agents through edge-scoped
   permissions with durable restart-safe state.
 ---
@@ -27,8 +27,6 @@ Call a specific node by stable id when there is more than one node of a kind:
 orca canvas call --tool browser.snapshot --node <browser-node> --json
 orca canvas call --tool simulator.ax --node <simulator-node> --json
 orca canvas call --tool note.read --node <note-node> --json
-orca canvas call --tool terminal.send --node <terminal-node> --args '{"text":"pwd"}' --json
-orca canvas call --tool terminal.read --node <terminal-node> --args '{"cursor":0}' --json
 ```
 
 For every request with two or more concrete actions, keep a durable Todo in
@@ -54,13 +52,29 @@ orca snapshot --page canvas-<browser-node> --json
 orca screenshot --page canvas-<browser-node> --json
 ```
 
+Use the Canvas browser only for visible or authenticated page work. Inspecting
+code, files, APIs, databases, and build output stays in the agent's native
+terminal. `browser.spawn` reuses a browser already connected to the agent, and
+`browser.navigate` navigates that same page; Canvas browser tools cannot create
+extra tabs or profiles. Prefer one `browser.snapshot`, act with its fresh refs,
+then use a semantic `browser.wait` condition instead of polling or sleeping.
+`browser.screenshot` returns MCP image content and should be used when pixels
+matter, not as a substitute for the accessibility snapshot. Snapshots default
+to 24 KiB; raise `maxBytes` only when the bounded head and tail are insufficient.
+
+The Canvas adapter accepts `fill` with `element`/`ref` plus `value`/`text`,
+`type` with `input`/`text`, and `eval` with `expression`/`js`. A zero-argument
+function passed to `eval` is invoked automatically. `wait` requires at least
+one of `selector`, `text`, `url`, `load`, `fn`, `state`, or `timeout`.
+
 The network node observes a browser only when it is also directly connected to
 that browser. It acquires Orca's native browser capture automatically; traffic
 generated after capture starts appears in the node. Notes, todos, and stopwatch
 timers are durable Canvas state owned by the main process, so an agent can
 update them even while the Canvas view is hidden or recovering after a restart.
-Terminal nodes use Orca's native terminal handles and cursor reads; wait for the
-node to become live after spawning it.
+Terminal nodes are manual user resources and are never agent-callable. Agents
+run commands only through their own native terminal tool. The AgentNode mirrors
+that native PTY without creating a second command executor.
 
 `canvas ask` and `orchestrate` use the caller's native terminal as coordinator
 and persist Orca Runs, Tasks, worker dispatches, lifecycle, and reports. They do

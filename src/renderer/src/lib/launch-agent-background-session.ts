@@ -1,5 +1,4 @@
 import { useAppStore } from '@/store'
-import { buildAgentStartupPlan } from '@/lib/tui-agent-startup'
 import type {
   LaunchAgentBackgroundSessionArgs,
   LaunchAgentBackgroundSessionResult
@@ -7,12 +6,6 @@ import type {
 import { tuiAgentToAgentKind } from '@/lib/telemetry'
 import { scheduleAgentBackgroundDraft } from '@/lib/agent-background-draft-delivery'
 import { requestBackgroundTerminalWorktreeMount } from '@/components/terminal/background-terminal-worktree-mount'
-import {
-  resolveTuiAgentLaunchArgs,
-  resolveTuiAgentLaunchEnv
-} from '../../../shared/tui-agent-launch-defaults'
-import { TUI_AGENT_CONFIG } from '../../../shared/tui-agent-config'
-import { resolveAgentBackgroundLaunchHost } from '@/lib/agent-background-session-launch-host'
 import { makePaneKey } from '../../../shared/stable-pane-id'
 import {
   registerEagerPtyBuffer,
@@ -31,7 +24,6 @@ import {
 import { createSshBackgroundStartupDelivery } from '@/lib/ssh-background-startup-delivery'
 import { shouldUseShellReadyStartupDelivery } from '../../../shared/codex-startup-delivery'
 import { isMainTerminalSideEffectAuthorityForPty } from '@/components/terminal-pane/terminal-side-effect-facts-handler'
-import { resolveLocalWindowsAgentStartupShell } from '../../../shared/windows-terminal-shell'
 import { runBestEffortAgentBackgroundCleanups } from '@/lib/agent-background-session-cleanup'
 import type { bindAutomationTerminal } from '@/lib/automation-terminal-ownership'
 import {
@@ -40,61 +32,26 @@ import {
 } from '@/lib/adopt-agent-background-session-tab'
 import { createBackgroundAgentStatusConsumer } from '@/lib/background-agent-status-consumer'
 import { isWslUncPath } from '../../../shared/wsl-paths'
-import { trustAgentWorkspace } from '@/lib/agent-background-workspace-trust'
+import { prepareAgentBackgroundStartup } from '@/lib/agent-background-startup-preparation'
+import { releaseAutomaticAgentResumeClaim } from '@/lib/agent-background-resume-claim'
+import { getSystemPrefersDark } from '@/lib/terminal-theme'
+import { resolveTerminalStartupColorQueryReplies } from '@/components/terminal-pane/terminal-appearance'
 
 export async function launchAgentBackgroundSession(
   args: LaunchAgentBackgroundSessionArgs
 ): Promise<LaunchAgentBackgroundSessionResult | null> {
-  const { agent, worktreeId, prompt, launchSource, title, onData, onExit, onAgentStatus } = args
+  const { agent, worktreeId, launchSource, title, onData, onExit, onAgentStatus } = args
   const store = useAppStore.getState()
-  // Folder workspaces exist only in getKnownWorktreeById (#2989).
-  const worktree = store.getKnownWorktreeById(worktreeId)
-  const repo = worktree ? store.repos.find((entry) => entry.id === worktree.repoId) : null
-  if (!worktree) {
-    throw new Error('The target workspace is no longer available.')
-  }
-  const cmdOverrides = store.settings?.agentCmdOverrides ?? {}
-  const agentArgs =
-    args.agentArgs ?? resolveTuiAgentLaunchArgs(agent, store.settings?.agentDefaultArgs)
-  const agentEnv = {
-    ...resolveTuiAgentLaunchEnv(agent, store.settings?.agentDefaultEnv),
-    ...args.agentEnv
-  }
-  // Folder launch ownership cannot be derived from a repo row (#2989).
-  const launchHost = resolveAgentBackgroundLaunchHost({
-    store,
-    worktreeId,
-    worktreePath: worktree.path,
-    repo
-  })
-  await trustAgentWorkspace(agent, worktree.path, launchHost.connectionId)
-  const { platform: launchPlatform, isRemote } = launchHost
-  const startupShell = resolveLocalWindowsAgentStartupShell({
-    platform: launchPlatform,
-    isRemote,
-    terminalWindowsShell: store.settings?.terminalWindowsShell
-  })
-  const trimmedPrompt = prompt?.trim() ?? ''
-  const hasPrompt = trimmedPrompt.length > 0
-  const isFollowupPath = TUI_AGENT_CONFIG[agent].promptInjectionMode === 'stdin-after-start'
-
-  const pasteDraftAfterLaunch = hasPrompt && isFollowupPath ? trimmedPrompt : null
-  const startupPlan = buildAgentStartupPlan({
-    agent,
-    prompt: hasPrompt && !isFollowupPath ? trimmedPrompt : '',
-    cmdOverrides,
-    agentArgs,
-    agentEnv,
-    ...(args.managedAccountId !== undefined ? { managedAccountId: args.managedAccountId } : {}),
-    nativeSystemPrompt: args.nativeSystemPrompt,
-    platform: launchPlatform,
-    shell: startupShell,
-    isRemote,
-    allowEmptyPromptLaunch: !hasPrompt || isFollowupPath
-  })
-  if (!startupPlan) {
+  const prepared = await prepareAgentBackgroundStartup(args, store)
+  if (!prepared) {
     return null
   }
+  const { worktree, launchHost, startupPlan, trimmedPrompt, hasPrompt, isFollowupPath } = prepared
+  const { pasteDraftAfterLaunch } = prepared
+  const terminalColorQueryReplies = resolveTerminalStartupColorQueryReplies(
+    store.settings,
+    getSystemPrefersDark()
+  )
 
   // A hidden run tab must never be store-visible without its PTY (#2989).
   const { reservedTabId, leafId, launchToken, launchRegistration, paneEnv } =
@@ -107,6 +64,13 @@ export async function launchAgentBackgroundSession(
       env: startupPlan.env
     })
   let paneKey = makePaneKey(reservedTabId, leafId)
+  if (args.resume) {
+    store.claimAutomaticAgentResume(reservedTabId, {
+      worktreeId,
+      launchAgent: agent,
+      providerSession: args.resume.providerSession
+    })
+  }
   const sshConnectionId = launchHost.connectionId
   const sshStartupDelivery = createSshBackgroundStartupDelivery({
     command: sshConnectionId ? startupPlan.launchCommand : null,
@@ -204,8 +168,10 @@ export async function launchAgentBackgroundSession(
         env: paneEnv,
         ...(args.envToDelete?.length ? { envToDelete: args.envToDelete } : {}),
         launchConfig: startupPlan.launchConfig,
+        ...(args.resume ? { resumeProviderSession: args.resume.providerSession } : {}),
         launchToken,
         launchAgent: agent,
+        ...(terminalColorQueryReplies ? { terminalColorQueryReplies } : {}),
         connectionId: sshConnectionId,
         worktreeId,
         tabId: reservedTabId,
@@ -213,7 +179,7 @@ export async function launchAgentBackgroundSession(
         telemetry: {
           agent_kind: tuiAgentToAgentKind(agent),
           launch_source: launchSource ?? 'unknown',
-          request_kind: 'new'
+          request_kind: args.resume ? 'resume' : 'new'
         }
       })
       ptyId = result.id
@@ -238,11 +204,17 @@ export async function launchAgentBackgroundSession(
       ...(title ? { title } : {})
     })
     if (!adopted) {
+      if (args.resume) {
+        releaseAutomaticAgentResumeClaim(reservedTabId)
+      }
       return null
     }
     tab = adopted.tab
     paneKey = adopted.paneKey
     terminalOwnership = adopted.terminalOwnership
+    if (args.resume) {
+      store.clearSleepingAgentSession(paneKey)
+    }
     if (agent === 'command-code' && hasPrompt && !isFollowupPath) {
       // Why: Command Code does not expose a prompt-start hook; seed working for
       // hidden prompt launches so sidebar/activity surfaces do not stay idle.
@@ -297,6 +269,9 @@ export async function launchAgentBackgroundSession(
 
     return { tabId: tab.id, paneKey, ptyId, startupPlan, terminalOwnership }
   } catch (error) {
+    if (args.resume) {
+      releaseAutomaticAgentResumeClaim(reservedTabId)
+    }
     // Why: terminal creation and stream subscription are separate remote calls.
     // A failure between them must not strand an invisible runtime terminal.
     exitHandled = true

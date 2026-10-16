@@ -31,9 +31,12 @@ export const CANVAS_COMMAND_SPECS: CommandSpec[] = [
     summary: 'Call a tool on a connected Canvas node',
     usage: 'orca canvas call --tool <tool> [--node <node-id>] [--args <json-object>] [--json]',
     allowedFlags: [...GLOBAL_FLAGS, 'tool', 'node', 'args'],
+    notes: [
+      'Canvas terminal nodes are manual user resources and cannot be called by agents; use the agent native terminal tool.'
+    ],
     examples: [
       'orca canvas call --tool note.read --node <node-id> --json',
-      'orca canvas call --tool terminal.run --node <node-id> --args \'{"command":"pwd"}\' --json',
+      'orca canvas call --tool todo.add --node <node-id> --args \'{"text":"review"}\' --json',
       'orca canvas call --tool browser.read --node <node-id> --json'
     ]
   },

@@ -4,7 +4,6 @@ import { singlePaneLayoutSnapshot } from '@/store/slices/terminal-helpers'
 import { isValidHostTerminalTabId } from '../../../../../shared/terminal-tab-id'
 import {
   makePaneKey,
-  parsePaneKey,
   type PaneKey,
   type TerminalLeafId
 } from '../../../../../shared/stable-pane-id'
@@ -15,8 +14,13 @@ import {
 import { isShellProcess } from '../../../../../shared/agent-detection'
 import { isTuiAgent, TUI_AGENT_CONFIG } from '../../../../../shared/tui-agent-config'
 import type { TuiAgent } from '../../../../../shared/types'
+import {
+  canvasAgentMirrorIdentityFromData,
+  type CanvasAgentMirrorIdentity,
+  type CanvasAgentSessionData
+} from './canvas-agent-session-identity'
 
-export type CanvasAgentSessionData = Record<string, unknown>
+export type { CanvasAgentSessionData } from './canvas-agent-session-identity'
 
 type CanvasAgentSessionTab = ReturnType<ReturnType<typeof useAppStore.getState>['createTab']>
 
@@ -25,22 +29,19 @@ export type CanvasAgentMirror = {
   tabId: string
   leafId: TerminalLeafId
   paneKey: PaneKey
+  worktreeId: string
   ptyId: string | null
   reusedExistingPty: boolean
 }
 
-function stringValue(value: unknown): string | undefined {
-  return typeof value === 'string' && value.trim().length > 0 ? value.trim() : undefined
-}
-
-function tabForId(tabId: string | undefined, worktreeId?: string): CanvasAgentSessionTab | null {
+function tabForId(tabId: string | undefined, worktreeId: string): CanvasAgentSessionTab | null {
   if (!tabId) {
     return null
   }
   return (
     Object.values(useAppStore.getState().tabsByWorktree)
       .flat()
-      .find((tab) => tab.id === tabId && (!worktreeId || tab.worktreeId === worktreeId)) ?? null
+      .find((tab) => tab.id === tabId && tab.worktreeId === worktreeId) ?? null
   )
 }
 
@@ -90,17 +91,6 @@ function ptyBelongsToAgent(
   return isExpectedAgentProcess(processName, TUI_AGENT_CONFIG[agentKind].expectedProcess)
 }
 
-function identityFromData(data: CanvasAgentSessionData): {
-  tabId?: string
-  leafId?: TerminalLeafId
-} {
-  const parsed = stringValue(data.paneKey) ? parsePaneKey(String(data.paneKey)) : null
-  const tabId = stringValue(data.mirrorTabId) ?? parsed?.tabId
-  const leafIdValue = stringValue(data.mirrorLeafId) ?? parsed?.leafId
-  const leafId = leafIdValue ? parsePaneKey(`canvas:${leafIdValue}`)?.leafId : undefined
-  return { tabId, leafId }
-}
-
 /**
  * Finds or creates the real Orca terminal surface backing a Canvas agent.
  *
@@ -116,19 +106,23 @@ export async function ensureCanvasAgentMirror(args: {
   data: CanvasAgentSessionData
 }): Promise<CanvasAgentMirror> {
   const state = useAppStore.getState()
-  const identity = identityFromData(args.data)
-  let tab = tabForId(identity.tabId, args.worktreeId)
+  const identity = canvasAgentMirrorIdentityFromData(args.data)
+  const persistedIdentity: CanvasAgentMirrorIdentity =
+    identity.worktreeId && identity.worktreeId !== args.worktreeId ? {} : identity
+  let tab = tabForId(persistedIdentity.tabId, args.worktreeId)
   // Canvas localStorage can hydrate a node a few frames before Orca restores
   // its native terminal tabs. Reconcile the persisted identity first; only a
   // genuinely missing tab after hydration is allowed to create a new one.
-  if (!tab && identity.tabId && !state.workspaceSessionReady) {
-    tab = await waitForRestoredTab(identity.tabId, args.worktreeId)
+  if (!tab && persistedIdentity.tabId && !state.workspaceSessionReady) {
+    tab = await waitForRestoredTab(persistedIdentity.tabId, args.worktreeId)
   }
-  let leafId = identity.leafId ?? (createBrowserUuid() as TerminalLeafId)
+  const leafId = persistedIdentity.leafId ?? (createBrowserUuid() as TerminalLeafId)
 
   if (!tab) {
     const requestedTabId =
-      identity.tabId && isValidHostTerminalTabId(identity.tabId) ? identity.tabId : undefined
+      persistedIdentity.tabId && isValidHostTerminalTabId(persistedIdentity.tabId)
+        ? persistedIdentity.tabId
+        : undefined
     tab = state.createTab(args.worktreeId, undefined, undefined, {
       ...(requestedTabId ? { id: requestedTabId } : {}),
       activate: false,
@@ -173,15 +167,19 @@ export async function ensureCanvasAgentMirror(args: {
     tabId: tab.id,
     leafId,
     paneKey,
+    worktreeId: args.worktreeId,
     ptyId,
     reusedExistingPty
   }
 }
 
 /** Closes the native mirror and lets the normal Orca tab-retirement path own teardown. */
-export function closeCanvasAgentMirror(data: CanvasAgentSessionData): void {
-  const { tabId } = identityFromData(data)
-  const tab = tabForId(tabId)
+export function closeCanvasTerminalMirror(data: CanvasAgentSessionData): void {
+  const { tabId, worktreeId } = canvasAgentMirrorIdentityFromData(data)
+  if (!worktreeId) {
+    return
+  }
+  const tab = tabForId(tabId, worktreeId)
   if (!tab) {
     return
   }
@@ -194,7 +192,8 @@ export function closeCanvasAgentMirror(data: CanvasAgentSessionData): void {
 export function canvasAgentMirrorIdentity(data: CanvasAgentSessionData): {
   tabId: string | undefined
   leafId: TerminalLeafId | undefined
+  worktreeId: string | undefined
 } {
-  const identity = identityFromData(data)
-  return { tabId: identity.tabId, leafId: identity.leafId }
+  const identity = canvasAgentMirrorIdentityFromData(data)
+  return { tabId: identity.tabId, leafId: identity.leafId, worktreeId: identity.worktreeId }
 }
